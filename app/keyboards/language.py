@@ -1,11 +1,18 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import ReplyKeyboardMarkup
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+
+# Tugma matni orqali tilni aniqlaymiz (til tanlashdan oldin bo'lgani uchun
+# bu yerda i18n ishlatmaymiz - foydalanuvchi hali birorta tilni tanlamagan)
+LANGUAGE_BUTTONS = {
+    "🇺🇿 O'zbekcha": "uz",
+    "🇷🇺 Русский": "ru",
+    "🇬🇧 English": "en",
+}
 
 
-def language_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🇺🇿 O'zbekcha", callback_data="lang:uz")
-    builder.button(text="🇷🇺 Русский", callback_data="lang:ru")
-    builder.button(text="🇬🇧 English", callback_data="lang:en")
+def language_keyboard() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    for text in LANGUAGE_BUTTONS:
+        builder.button(text=text)
     builder.adjust(1)
-    return builder.as_markup()
+    return builder.as_markup(resize_keyboard=True, one_time_keyboard=True)

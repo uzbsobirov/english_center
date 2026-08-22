@@ -18,3 +18,5 @@ menu-referral = 👥 Реферал
 menu-language = 🌐 Язык
 menu-contact = 📞 Контакты
 menu-free-lesson = 📝 Запись на бесплатный урок
+
+coming-soon = 🔧 Этот раздел скоро будет доступен.

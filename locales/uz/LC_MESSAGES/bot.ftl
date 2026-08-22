@@ -18,3 +18,5 @@ menu-referral = 👥 Referal
 menu-language = 🌐 Til
 menu-contact = 📞 Bog'lanish
 menu-free-lesson = 📝 Free darsga yozilish
+
+coming-soon = 🔧 Bu bo'lim tez orada ishga tushadi.

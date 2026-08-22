@@ -1,29 +1,51 @@
 from aiogram.types import ReplyKeyboardMarkup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram_i18n import I18nContext
 
-# TZ v2.4, 16-bo'lim: Asosiy menyu tugmalari (UZ/RU/EN)
-MAIN_MENU_BUTTONS = {
-    "courses": {"uz": "📚 Kurslar", "ru": "📚 Курсы", "en": "📚 Courses"},
-    "tests": {"uz": "🎯 Testlar", "ru": "🎯 Тесты", "en": "🎯 Tests"},
-    "homework": {"uz": "📋 Uy Vazifam", "ru": "📋 Домашнее задание", "en": "📋 Homework"},
-    "schedule": {"uz": "📅 Jadvalim", "ru": "📅 Расписание", "en": "📅 My Schedule"},
-    "profile": {"uz": "👤 Profilim", "ru": "👤 Мой профиль", "en": "👤 My Profile"},
-    "progress": {"uz": "📊 Progress", "ru": "📊 Прогресс", "en": "📊 Progress"},
-    "ranking": {"uz": "🏆 Reyting", "ru": "🏆 Рейтинг", "en": "🏆 Ranking"},
-    "referral": {"uz": "👥 Referal", "ru": "👥 Реферал", "en": "👥 Referral"},
-    "language": {"uz": "🌐 Til", "ru": "🌐 Язык", "en": "🌐 Language"},
-    "contact": {"uz": "📞 Bog'lanish", "ru": "📞 Контакты", "en": "📞 Contact"},
-    "free_lesson": {
-        "uz": "📝 Free darsga yozilish",
-        "ru": "📝 Запись на бесплатный урок",
-        "en": "📝 Book free lesson",
-    },
-}
+# Fluent kalitlar - klaviaturani i18n orqali qurish uchun
+MAIN_MENU_FLUENT_KEYS = [
+    "menu-courses",
+    "menu-tests",
+    "menu-homework",
+    "menu-schedule",
+    "menu-profile",
+    "menu-progress",
+    "menu-ranking",
+    "menu-referral",
+    "menu-language",
+    "menu-contact",
+    "menu-free-lesson",
+]
+
+# 3 tilning aniq matnlari - handler'da F.text.in_() filtri uchun kerak
+# (bot.ftl fayllardagi qiymatlar bilan bir xil bo'lishi shart)
+MAIN_MENU_TEXTS_UZ = [
+    "📚 Kurslar", "🎯 Testlar", "📋 Uy Vazifam", "📅 Jadvalim", "👤 Profilim",
+    "📊 Progress", "🏆 Reyting", "👥 Referal", "🌐 Til", "📞 Bog'lanish",
+    "📝 Free darsga yozilish",
+]
+MAIN_MENU_TEXTS_RU = [
+    "📚 Курсы", "🎯 Тесты", "📋 Домашнее задание", "📅 Расписание", "👤 Мой профиль",
+    "📊 Прогресс", "🏆 Рейтинг", "👥 Реферал", "🌐 Язык", "📞 Контакты",
+    "📝 Запись на бесплатный урок",
+]
+MAIN_MENU_TEXTS_EN = [
+    "📚 Courses", "🎯 Tests", "📋 Homework", "📅 My Schedule", "👤 My Profile",
+    "📊 Progress", "🏆 Ranking", "👥 Referral", "🌐 Language", "📞 Contact",
+    "📝 Book free lesson",
+]
+
+ALL_MAIN_MENU_TEXTS = set(MAIN_MENU_TEXTS_UZ + MAIN_MENU_TEXTS_RU + MAIN_MENU_TEXTS_EN)
 
 
-def main_menu_keyboard(lang: str = "uz") -> ReplyKeyboardMarkup:
+def main_menu_keyboard(i18n: I18nContext) -> ReplyKeyboardMarkup:
+    """
+    i18n context orqali joriy foydalanuvchi tilida menyu quriladi.
+    Til aniqlash butunlay middleware zimmasida - bu yerda hech narsa
+    qo'lda uzatilmaydi.
+    """
     builder = ReplyKeyboardBuilder()
-    for key, translations in MAIN_MENU_BUTTONS.items():
-        builder.button(text=translations.get(lang, translations["uz"]))
-    builder.adjust(2, 2, 2, 2, 2, 1)  # 11 ta tugma: 5 qator x2 + oxirgi 1 ta
+    for fluent_key in MAIN_MENU_FLUENT_KEYS:
+        builder.button(text=i18n.get(fluent_key))
+    builder.adjust(2, 2, 2, 2, 2, 1)
     return builder.as_markup(resize_keyboard=True)
