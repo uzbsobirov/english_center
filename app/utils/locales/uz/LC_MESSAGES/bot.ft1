@@ -1,0 +1,20 @@
+choose-language = Tilni tanlang:
+ask-name = Ismingizni kiriting:
+ask-phone = Telefon raqamingizni yuboring:
+share-phone-button = 📱 Raqamni yuborish
+registration-done = Ro'yxatdan muvaffaqiyatli o'tdingiz! ✅
+welcome-back = Xush kelibsiz, { $name }!
+invalid-phone = Iltimos, tugma orqali raqamingizni yuboring.
+
+# Asosiy menyu tugmalari
+menu-courses = 📚 Kurslar
+menu-tests = 🎯 Testlar
+menu-homework = 📋 Uy Vazifam
+menu-schedule = 📅 Jadvalim
+menu-profile = 👤 Profilim
+menu-progress = 📊 Progress
+menu-ranking = 🏆 Reyting
+menu-referral = 👥 Referal
+menu-language = 🌐 Til
+menu-contact = 📞 Bog'lanish
+menu-free-lesson = 📝 Free darsga yozilish
