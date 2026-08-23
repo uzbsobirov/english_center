@@ -61,10 +61,23 @@ class Course(Base):
     level: Mapped[LevelEnum] = mapped_column(Enum(LevelEnum))
     description: Mapped[dict] = mapped_column(JSON)
     duration_months: Mapped[int] = mapped_column(Integer)
+    lessons_per_week: Mapped[int] = mapped_column(Integer, default=2)
     price: Mapped[float] = mapped_column(Numeric(10, 2))
-    price_per_lesson: Mapped[float] = mapped_column(Numeric(10, 2))  # refund hisob-kitobi uchun
     image_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    @property
+    def total_lessons(self) -> int:
+        """Taxminiy jami darslar soni: oy x 4 hafta x haftalik dars soni."""
+        return self.duration_months * 4 * self.lessons_per_week
+
+    @property
+    def price_per_lesson(self) -> float:
+        """Bir dars narxi - qo'lda kiritilmaydi, umumiy narx va dars sonidan avtomatik hisoblanadi."""
+        total = self.total_lessons
+        if total <= 0:
+            return 0.0
+        return float(self.price) / total
 
 
 
