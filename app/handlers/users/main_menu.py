@@ -11,6 +11,8 @@ router = Router()
 async def main_menu_placeholder(message: Message, i18n: I18nContext):
     """
     Asosiy menyu tugmalari uchun vaqtinchalik javob.
+    ('Testlar' tugmasi endi web_app orqali to'g'ridan-to'g'ri ochiladi,
+    shuning uchun bu handler'ga umuman kelmaydi.)
     Har bir tugma TZ'dagi tegishli bosqichga yetganda
     shu handler o'rniga haqiqiy funksiyaga almashtiriladi.
     """

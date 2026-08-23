@@ -20,3 +20,6 @@ menu-contact = 📞 Bog'lanish
 menu-free-lesson = 📝 Free darsga yozilish
 
 coming-soon = 🔧 Bu bo'lim tez orada ishga tushadi.
+
+open-test-prompt = Testni boshlash uchun quyidagi tugmani bosing:
+open-test-button = 🎯 Testni boshlash

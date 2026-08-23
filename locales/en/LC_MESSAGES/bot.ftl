@@ -20,3 +20,6 @@ menu-contact = 📞 Contact
 menu-free-lesson = 📝 Book free lesson
 
 coming-soon = 🔧 This section will be available soon.
+
+open-test-prompt = Tap the button below to start the test:
+open-test-button = 🎯 Start test

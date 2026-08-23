@@ -1,8 +1,10 @@
-from aiogram.types import ReplyKeyboardMarkup
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from aiogram_i18n import I18nContext
 
-# Fluent kalitlar - klaviaturani i18n orqali qurish uchun
+# Web App (frontend) manzili - tunnel/domen o'zgarganda shu yerni yangilash kifoya
+WEBAPP_URL = "https://scheduled-ricky-nylon-packs.trycloudflare.com"
+
 MAIN_MENU_FLUENT_KEYS = [
     "menu-courses",
     "menu-tests",
@@ -17,8 +19,6 @@ MAIN_MENU_FLUENT_KEYS = [
     "menu-free-lesson",
 ]
 
-# 3 tilning aniq matnlari - handler'da F.text.in_() filtri uchun kerak
-# (bot.ftl fayllardagi qiymatlar bilan bir xil bo'lishi shart)
 MAIN_MENU_TEXTS_UZ = [
     "📚 Kurslar", "🎯 Testlar", "📋 Uy Vazifam", "📅 Jadvalim", "👤 Profilim",
     "📊 Progress", "🏆 Reyting", "👥 Referal", "🌐 Til", "📞 Bog'lanish",
@@ -41,11 +41,15 @@ ALL_MAIN_MENU_TEXTS = set(MAIN_MENU_TEXTS_UZ + MAIN_MENU_TEXTS_RU + MAIN_MENU_TE
 def main_menu_keyboard(i18n: I18nContext) -> ReplyKeyboardMarkup:
     """
     i18n context orqali joriy foydalanuvchi tilida menyu quriladi.
-    Til aniqlash butunlay middleware zimmasida - bu yerda hech narsa
-    qo'lda uzatilmaydi.
+    'Testlar' tugmasi web_app bilan - bosilganda Web App DARHOL ochiladi,
+    oraliq xabar yoki qo'shimcha bosish shart emas.
     """
     builder = ReplyKeyboardBuilder()
     for fluent_key in MAIN_MENU_FLUENT_KEYS:
-        builder.button(text=i18n.get(fluent_key))
+        text = i18n.get(fluent_key)
+        if fluent_key == "menu-tests":
+            builder.button(text=text, web_app=WebAppInfo(url=WEBAPP_URL))
+        else:
+            builder.button(text=text)
     builder.adjust(2, 2, 2, 2, 2, 1)
     return builder.as_markup(resize_keyboard=True)

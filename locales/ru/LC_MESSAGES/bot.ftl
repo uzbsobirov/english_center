@@ -20,3 +20,6 @@ menu-contact = 📞 Контакты
 menu-free-lesson = 📝 Запись на бесплатный урок
 
 coming-soon = 🔧 Этот раздел скоро будет доступен.
+
+open-test-prompt = Нажмите кнопку ниже, чтобы начать тест:
+open-test-button = 🎯 Начать тест

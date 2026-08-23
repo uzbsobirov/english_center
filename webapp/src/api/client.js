@@ -1,7 +1,7 @@
 import axios from "axios";
 import WebApp from "../lib/telegram";
 
-const BASE_URL = "https://dts-urls-brush-vault.trycloudflare.com";
+const BASE_URL = "https://maintenance-kings-poll-legs.trycloudflare.com";
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
