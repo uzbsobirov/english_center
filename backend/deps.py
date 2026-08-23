@@ -56,6 +56,7 @@ def verify_telegram_init_data(init_data: str) -> dict:
             detail="initData formati noto'g'ri",
         )
 
+
     if not hmac.compare_digest(calculated_hash, received_hash or ""):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -73,7 +74,7 @@ def verify_telegram_init_data(init_data: str) -> dict:
 
 
 async def get_current_telegram_user(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
+    x_telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
 ) -> dict:
     """
     FastAPI dependency: har bir himoyalangan endpoint shu funksiyani
@@ -84,4 +85,6 @@ async def get_current_telegram_user(
         async def me(user: dict = Depends(get_current_telegram_user)):
             return user
     """
-    return verify_telegram_init_data(x_telegram_init_data)
+    return verify_telegram_init_data(x_telegram_init_data or "")
+
+
