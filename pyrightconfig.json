@@ -1,0 +1,11 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": ["."],
+  "include": ["app", "backend", "middlewares", "data", "main.py", "init_db.py"],
+  "exclude": [".venv", "node_modules", "webapp"],
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalOperand": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportArgumentType": "none"
+}

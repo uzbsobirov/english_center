@@ -11,7 +11,7 @@ from aiogram.types import User as TgUser
 from aiogram_i18n.managers import BaseManager
 
 from backend.database import async_session
-from backend.models import User
+from backend.models import User, LanguageEnum
 
 
 class UserManager(BaseManager):
@@ -46,5 +46,8 @@ class UserManager(BaseManager):
             async with async_session() as session:
                 user = await session.get(User, event_from_user.id)
                 if user is not None:
-                    user.language = locale
+                    try:
+                        user.language = LanguageEnum(locale)
+                    except ValueError:
+                        user.language = LanguageEnum.uz
                     await session.commit()

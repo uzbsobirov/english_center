@@ -227,6 +227,10 @@ async def refund_group_selected(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+from sqlalchemy import select, func
+from backend.models import Attendance, AttendanceStatusEnum
+
+
 @router.message(RefundRequest.entering_student_id, F.text)
 async def refund_student_id(message: Message, state: FSMContext):
     if not message.text.strip().isdigit():
@@ -242,50 +246,52 @@ async def refund_student_id(message: Message, state: FSMContext):
         await message.answer("Bunday ID bilan foydalanuvchi topilmadi. Qaytadan urinib ko'ring:")
         return
 
-    await state.update_data(student_id=student_id, student_name=student.full_name)
-    await state.set_state(RefundRequest.entering_lessons_attended)
-    await message.answer("O'quvchi nechta darsga qatnashgan? (raqam kiriting)")
-
-
-@router.message(RefundRequest.entering_lessons_attended, F.text)
-async def refund_lessons_attended(message: Message, state: FSMContext):
-    if not message.text.strip().isdigit():
-        await message.answer("Iltimos, faqat raqam yuboring.")
-        return
-
-    lessons_attended = int(message.text.strip())
     data = await state.get_data()
+    group_id = data["group_id"]
 
     async with async_session() as session:
+        # 1. To'langan summani aniqlash
         result = await session.execute(
             select(Payment).where(
-                Payment.student_id == data["student_id"],
-                Payment.group_id == data["group_id"],
+                Payment.student_id == student_id,
+                Payment.group_id == group_id,
                 Payment.status == PaymentStatusEnum.confirmed,
             )
         )
         payments = result.scalars().all()
         total_paid = sum(float(p.amount) for p in payments)
 
+        # 2. Qatnashgan darslar sonini attendance jadvalidan avtomatik olish (TZ 9)
+        att_res = await session.execute(
+            select(func.count(Attendance.id)).where(
+                Attendance.student_id == student_id,
+                Attendance.group_id == group_id,
+                Attendance.status.in_([AttendanceStatusEnum.present, AttendanceStatusEnum.late]),
+            )
+        )
+        lessons_attended = att_res.scalar() or 0
+
+        # 3. Qaytariladigan summani formula bo'yicha hisoblash
         used_amount = data["price_per_lesson"] * lessons_attended
         refund_amount = max(total_paid - used_amount, 0)
 
         refund = Refund(
-            student_id=data["student_id"],
-            group_id=data["group_id"],
-            reason=f"{lessons_attended} ta darsga qatnashgan, qolgani qaytariladi",
+            student_id=student_id,
+            group_id=group_id,
+            reason=f"Avtomatik hisob: {lessons_attended} ta darsga qatnashgan",
             calculated_amount=refund_amount,
+            status="pending",
         )
         session.add(refund)
         await session.commit()
 
     await state.clear()
     await message.answer(
-        f"📋 Qaytarish hisob-kitobi:\n\n"
-        f"O'quvchi: {data['student_name']}\n"
-        f"Guruh: {data['group_name']}\n"
-        f"Jami to'langan: {total_paid:,.0f} so'm\n"
-        f"Qatnashgan darslar: {lessons_attended} x {data['price_per_lesson']:,.0f} = {used_amount:,.0f} so'm\n\n"
+        f"📋 Qaytarish (Refund) hisob-kitobi (TZ 9 formula):\n\n"
+        f"👤 O'quvchi: {student.full_name}\n"
+        f"👥 Guruh: {data['group_name']}\n"
+        f"💵 Jami to'langan: {total_paid:,.0f} so'm\n"
+        f"📊 Davomatdan olingan darslar: {lessons_attended} x {data['price_per_lesson']:,.0f} = {used_amount:,.0f} so'm\n\n"
         f"💰 Qaytariladigan summa: {refund_amount:,.0f} so'm\n\n"
-        f"Status: kutilmoqda (admin tasdiqlashi kerak)"
-    )
+        f"Status: ⏳ Kutilmoqda (Admin tasdiqlashi kerak)"
+    )

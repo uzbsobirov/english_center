@@ -1,9 +1,7 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from aiogram_i18n import I18nContext
-
-# Web App (frontend) manzili - tunnel/domen o'zgarganda shu yerni yangilash kifoya
-WEBAPP_URL = "https://scheduled-ricky-nylon-packs.trycloudflare.com"
+from data.config import WEBAPP_URL
 
 MAIN_MENU_FLUENT_KEYS = [
     "menu-courses",

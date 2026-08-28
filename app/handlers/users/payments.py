@@ -127,15 +127,18 @@ async def payment_cash_requested(callback: CallbackQuery):
     )
 
     from main import bot
+    from backend.services.user_service import get_admin_ids
+
     recipients = [group.teacher_id] if teacher is not None else []
     if not recipients:
-        recipients = [int(a) for a in env.list("ADMINS")]
+        recipients = await get_admin_ids()
 
     for recipient_id in recipients:
         try:
             await bot.send_message(recipient_id, text, reply_markup=confirm_keyboard)
         except Exception:
             continue
+
 
 
 @router.callback_query(F.data.startswith("confirm_payment:"))

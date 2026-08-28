@@ -19,3 +19,6 @@ async_throttle
 
 uvicorn
 fastapi
+python-multipart
+pypdf
+reportlab

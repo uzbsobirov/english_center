@@ -18,6 +18,7 @@ from fastapi import Header, HTTPException, status
 from data.config import env
 
 BOT_TOKEN = env.str("BOT_TOKEN")
+DEV_MODE = env.bool("DEV_MODE", True)
 
 
 def _calculate_hash(init_data: str, bot_token: str) -> tuple[str, dict]:
@@ -40,8 +41,17 @@ def verify_telegram_init_data(init_data: str) -> dict:
     """
     initData'ni tekshiradi va ichidan foydalanuvchi ma'lumotlarini qaytaradi.
     Noto'g'ri bo'lsa xato ko'taradi.
+    DEV_MODE bo'lsa va initData bo'lmasa, test foydalanuvchisini qaytaradi.
     """
     if not init_data:
+        if DEV_MODE:
+            return {
+                "id": 1435473812,
+                "first_name": "Developer",
+                "last_name": "User",
+                "username": "developer",
+                "language_code": "uz",
+            }
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="initData yo'q",

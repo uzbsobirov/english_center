@@ -3,6 +3,7 @@ DB ulanish sozlamalari.
 PostgreSQL + SQLAlchemy (async) uchun asosiy fayl.
 """
 import os
+from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
@@ -23,7 +24,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency sifatida ishlatiladi."""
     async with async_session() as session:
         yield session
