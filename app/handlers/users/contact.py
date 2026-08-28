@@ -168,7 +168,12 @@ async def question_received(message: Message, state: FSMContext, i18n: I18nConte
     await message.answer(
         "✅ <b>Savolingiz qabul qilindi!</b>\n\n"
         "Tez orada menejerlarimiz sizga shu yerda javob berishadi.",
-        reply_markup=main_menu_keyboard(i18n),
+        reply_markup=main_menu_keyboard(
+            i18n,
+            user_id=message.from_user.id,
+            user_name=message.from_user.full_name,
+            username=message.from_user.username,
+        ),
     )
 
     # Adminlarga yuborish

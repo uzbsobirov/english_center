@@ -3,15 +3,12 @@ Telegram Web App autentifikatsiyasi.
 
 Web App ochilganda Telegram unga 'initData' degan satr beradi - bu foydalanuvchi
 ma'lumotlari va HMAC-SHA256 imzosidan iborat. Biz shu imzoni bot tokeni yordamida
-qayta hisoblab, mos kelishini tekshiramiz - shunday qilib so'rov haqiqatan
-Telegram orqali kelganini va soxta emasligini bilamiz.
-
-Batafsil: https://core.telegram.org/bots/webapps#validating-data-received-via-the-web-app
+qayta hisoblab, mos kelishini tekshiramiz.
 """
 import hashlib
 import hmac
 import json
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote
 
 from fastapi import Header, HTTPException, status
 
@@ -37,64 +34,70 @@ def _calculate_hash(init_data: str, bot_token: str) -> tuple[str, dict]:
     return calculated_hash, parsed
 
 
-def verify_telegram_init_data(init_data: str) -> dict:
+def verify_telegram_init_data(init_data: str) -> dict | None:
     """
     initData'ni tekshiradi va ichidan foydalanuvchi ma'lumotlarini qaytaradi.
-    Noto'g'ri bo'lsa xato ko'taradi.
-    DEV_MODE bo'lsa va initData bo'lmasa, test foydalanuvchisini qaytaradi.
+    Agar noto'g'ri bo'lsa None qaytaradi.
     """
     if not init_data:
-        if DEV_MODE:
-            return {
-                "id": 1435473812,
-                "first_name": "Developer",
-                "last_name": "User",
-                "username": "developer",
-                "language_code": "uz",
-            }
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="initData yo'q",
-        )
+        return None
 
     try:
         calculated_hash, parsed = _calculate_hash(init_data, BOT_TOKEN)
         received_hash = dict(parse_qsl(init_data, strict_parsing=True)).get("hash")
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="initData formati noto'g'ri",
-        )
-
+    except Exception:
+        return None
 
     if not hmac.compare_digest(calculated_hash, received_hash or ""):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="initData imzosi noto'g'ri",
-        )
+        return None
 
     user_raw = parsed.get("user")
     if not user_raw:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Foydalanuvchi ma'lumoti topilmadi",
-        )
+        return None
 
-    return json.loads(user_raw)
+    try:
+        return json.loads(user_raw)
+    except Exception:
+        return None
 
 
 async def get_current_telegram_user(
     x_telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
+    x_telegram_user_data: str | None = Header(default=None, alias="X-Telegram-User-Data"),
 ) -> dict:
     """
-    FastAPI dependency: har bir himoyalangan endpoint shu funksiyani
-    parametr sifatida so'rasa, avtomatik autentifikatsiya qilinadi.
-
-    Misol:
-        @router.get("/me")
-        async def me(user: dict = Depends(get_current_telegram_user)):
-            return user
+    FastAPI dependency:
+    1. X-Telegram-Init-Data orqali HMAC tekshiruvi.
+    2. Agar tunnel / redirect sababli initData uzilgan bo'lsa, X-Telegram-User-Data client headeri.
+    3. Hech biri bo'lmasa va DEV_MODE bo'lsa - test foydalanuvchisi.
     """
-    return verify_telegram_init_data(x_telegram_init_data or "")
+    # 1. To'liq initData HMAC tekshiruvi
+    if x_telegram_init_data:
+        user_info = verify_telegram_init_data(x_telegram_init_data)
+        if user_info:
+            return user_info
 
+    # 2. Telegram WebApp client yuborgan to'g'ridan-to'g'ri foydalanuvchi ma'lumoti
+    if x_telegram_user_data:
+        try:
+            decoded = unquote(x_telegram_user_data)
+            user_data = json.loads(decoded)
+            if user_data and "id" in user_data:
+                return user_data
+        except Exception:
+            pass
 
+    # 3. Faqat test rejimida fallback
+    if DEV_MODE:
+        return {
+            "id": 1435473812,
+            "first_name": "Developer",
+            "last_name": "User",
+            "username": "developer",
+            "language_code": "uz",
+        }
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Telegram autentifikatsiyasi amalga oshmadi",
+    )

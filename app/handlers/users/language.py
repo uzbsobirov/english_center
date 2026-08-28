@@ -47,6 +47,11 @@ async def switch_language(callback: CallbackQuery, i18n: I18nContext):
     await callback.message.delete()
     await callback.message.answer(
         msg_map.get(lang, "OK"),
-        reply_markup=main_menu_keyboard(i18n),
+        reply_markup=main_menu_keyboard(
+            i18n,
+            user_id=callback.from_user.id,
+            user_name=callback.from_user.full_name,
+            username=callback.from_user.username,
+        ),
     )
     await callback.answer()

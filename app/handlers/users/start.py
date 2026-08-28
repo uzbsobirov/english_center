@@ -29,7 +29,12 @@ async def start(message: Message, command: CommandObject, state: FSMContext, i18
         await state.clear()
         await message.answer(
             i18n.get("welcome-back", name=user.full_name),
-            reply_markup=main_menu_keyboard(i18n),
+            reply_markup=main_menu_keyboard(
+                i18n,
+                user_id=message.from_user.id,
+                user_name=user.full_name or message.from_user.full_name,
+                username=message.from_user.username,
+            ),
         )
         return
 
@@ -152,7 +157,12 @@ async def phone_shared(message: Message, state: FSMContext, i18n: I18nContext):
     await state.clear()
     await message.answer(
         i18n.get("registration-done"),
-        reply_markup=main_menu_keyboard(i18n),
+        reply_markup=main_menu_keyboard(
+            i18n,
+            user_id=message.from_user.id,
+            user_name=full_name,
+            username=message.from_user.username,
+        ),
     )
 
 

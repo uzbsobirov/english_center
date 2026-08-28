@@ -49,21 +49,42 @@ async def get_active_test(user: dict = Depends(get_current_telegram_user)):
     return _serialize_test(test)
 
 
+@router.get("/types")
+async def get_test_types(user: dict = Depends(get_current_telegram_user)):
+    """Mavjud test yo'nalishlari (IELTS, CEFR)."""
+    return [
+        {"id": "CEFR", "name": "CEFR Testlari", "description": "A1 - C2 darajalar bo'yicha grammatika va leksika"},
+        {"id": "IELTS", "name": "IELTS Testlari", "description": "Academic va General IELTS tayyorgarlik testlari"},
+    ]
+
+
 @router.get("/by-level/{level}")
-async def get_test_by_level(level: str, user: dict = Depends(get_current_telegram_user)):
+async def get_test_by_level(
+    level: str,
+    type: str | None = None,
+    user: dict = Depends(get_current_telegram_user)
+):
     """
-    Tanlangan darajaga (A1, A2, B1...) mos faol testni qaytaradi.
+    Tanlangan daraja va yo'nalishga (IELTS/CEFR) mos faol testni qaytaradi.
     """
     async with async_session() as session:
-        result = await session.execute(
-            select(Test).where(Test.is_active == True, Test.level == level).limit(1)
-        )
+        query = select(Test).where(Test.is_active == True, Test.level == level)
+        if type:
+            query = query.where(Test.certificate_type.ilike(type))
+        result = await session.execute(query.limit(1))
         test = result.scalar_one_or_none()
+
+        # Agar tanlangan yo'nalishda topilmasa, shu darajadagi boshqa faol testga fallback
+        if test is None and type:
+            result = await session.execute(
+                select(Test).where(Test.is_active == True, Test.level == level).limit(1)
+            )
+            test = result.scalar_one_or_none()
 
     if test is None:
         raise HTTPException(
             status_code=404,
-            detail=f"'{level}' darajasi uchun faol test topilmadi",
+            detail=f"'{level}' ({type or 'Barcha'}) darajasi uchun faol test topilmadi",
         )
 
     return _serialize_test(test)
@@ -83,114 +104,107 @@ def _serialize_test(test: Test) -> dict:
         "id": test.id,
         "title": test.title,
         "level": test.level.value,
+        "certificate_type": test.certificate_type,
         "passing_score": float(test.passing_score),
         "questions": safe_questions,
     }
 
+
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from backend.services.user_service import get_admin_ids, get_teacher_ids
+from backend.models import Enrollment, Group
 
 
-async def _notify_teachers_about_trial(trial_request_id: int, student_name: str, student_id: int, level: str, score_percent: float):
-    """
-    Barcha o'qituvchi va adminlarga free-dars so'rovi haqida xabar yuboradi,
-    'Qabul qilish' tugmasi bilan (7.1.1).
-    """
-    teacher_ids = await get_teacher_ids(level=level)
-    admin_ids = await get_admin_ids()
-    target_ids = list(set(teacher_ids + admin_ids))
-
-    if not target_ids:
-        return
-
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(
-                text="✅ Free Darsni Qabul Qilish",
-                callback_data=f"trial_accept:{trial_request_id}",
-            )
-        ]]
-    )
-    student_link_str = f"<a href='tg://user?id={student_id}'>{student_name}</a>"
-    text = (
-        f"🎉 <b>Yangi Free-Dars So'rovi!</b>\n\n"
-        f"👤 <b>O'quvchi:</b> {student_link_str} (ID: <code>{student_id}</code>)\n"
-        f"🎯 <b>Daraja:</b> {level} (Test bali: <b>{score_percent:.1f}%</b>)\n\n"
-        f"<i>Birinchi bo'lib qabul qilgan o'qituvchi ushbu o'quvchiga dars beradi.</i>"
-    )
-
-    for target_id in target_ids:
-        try:
-            await bot.send_message(target_id, text, reply_markup=keyboard)
-        except Exception:
-            continue
-
-    await bot.session.close()
-
-
-async def _notify_admins_about_test_submission(
+async def _send_test_notifications(
     student_id: int,
     student_name: str,
-    test_level: str,
-    cert_type: str,
+    test: Test,
     score: int,
     total: int,
     percent: float,
     passed: bool,
 ):
     """
-    Har qanday test topshirilganda adminlar va o'qituvchilarga xabarnoma yuboradi.
+    Test topshirilganda:
+    1. O'quvchining o'ziga natijani yuboradi.
+    2. Agar o'quvchi biror guruhda o'qisa, o'sha guruh o'qituvchisiga xabar beradi.
+    3. Adminlarga xabarnoma yuboradi.
     """
-    admin_ids = await get_admin_ids()
-    teacher_ids = await get_teacher_ids(level=test_level)
-    target_ids = list(set(admin_ids + teacher_ids))
-
-    if not target_ids:
-        return
-
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    status_icon = "✅ Muvaffaqiyatli o'tdi" if passed else "❌ O'ta olmadi"
-    student_link_str = f"<a href='tg://user?id={student_id}'>{student_name}</a>"
-    text = (
-        f"📊 <b>Yangi Test Topshirildi!</b>\n\n"
-        f"👤 <b>O'quvchi:</b> {student_link_str} (ID: <code>{student_id}</code>)\n"
-        f"🎯 <b>Yo'nalish:</b> {cert_type} ({test_level})\n"
-        f"📈 <b>To'plagan bali:</b> {score}/{total} (<b>{percent:.1f}%</b>)\n"
-        f"📌 <b>Natija:</b> {status_icon}"
+    cert_type = str(getattr(test, "certificate_type", "General"))
+    level_str = test.level.value if hasattr(test.level, "value") else str(test.level)
+    test_title_str = (
+        test.title.get("uz", test.title.get("en", "Test"))
+        if isinstance(test.title, dict)
+        else str(test.title)
     )
-    for target_id in target_ids:
-        try:
-            await bot.send_message(target_id, text)
-        except Exception:
-            continue
-    await bot.session.close()
+    status_icon = "✅ Muvaffaqiyatli o'tdingiz!" if passed else "❌ O'tish balini to'play olmadingiz."
 
+    # 1. O'quvchining o'ziga botdan to'g'ridan-to'g'ri xabar
+    student_msg = (
+        f"📊 <b>Sizning test natijangiz:</b>\n\n"
+        f"🎯 <b>Yo'nalish:</b> {cert_type} ({level_str})\n"
+        f"📝 <b>Test:</b> {test_title_str}\n"
+        f"📈 <b>To'plangan ball:</b> <b>{score}/{total}</b> (<b>{percent:.1f}%</b>)\n"
+        f"📌 <b>Holat:</b> {status_icon}"
+    )
+    try:
+        await bot.send_message(student_id, student_msg)
+    except Exception as e:
+        print(f"⚠️ O'quvchiga xabar yuborishda xatolik ({student_id}): {e}")
 
-async def _notify_admins_about_beginner(student_name: str, student_id: int):
-    """
-    Eng past daraja (A1) testidan ham yiqilgan o'quvchi haqida adminlarga xabar beradi (TZ 18).
-    """
+    # 2. O'quvchi a'zo bo'lgan guruh o'qituvchisini aniqlaymiz
+    notified_teacher_ids = set()
+    async with async_session() as session:
+        enrollments_res = await session.execute(
+            select(Enrollment, Group)
+            .join(Group, Enrollment.group_id == Group.id)
+            .where(
+                Enrollment.student_id == student_id,
+                Enrollment.is_active == True,
+                Group.is_active == True,
+            )
+        )
+        enrolled_groups = enrollments_res.all()
+
+    student_link = f"<a href='tg://user?id={student_id}'>{student_name}</a>"
+
+    if enrolled_groups:
+        for enrollment, group in enrolled_groups:
+            if group.teacher_id and group.teacher_id not in notified_teacher_ids:
+                notified_teacher_ids.add(group.teacher_id)
+                teacher_msg = (
+                    f"📝 <b>Guruhingiz o'quvchisi test topshirdi!</b>\n\n"
+                    f"👤 <b>O'quvchi:</b> {student_link}\n"
+                    f"👥 <b>Guruh:</b> <b>{group.name}</b>\n"
+                    f"🎯 <b>Test:</b> {cert_type} — {level_str}\n"
+                    f"📊 <b>Natija:</b> <b>{score}/{total}</b> (<b>{percent:.1f}%</b>)\n"
+                    f"📌 <b>Holat:</b> {'✅ O\'tdi' if passed else '❌ O\'ta olmadi'}"
+                )
+                try:
+                    await bot.send_message(group.teacher_id, teacher_msg)
+                except Exception as e:
+                    print(f"⚠️ O'qituvchiga xabar yuborishda xatolik ({group.teacher_id}): {e}")
+
+    # 3. Adminlarga xabar
     admin_ids = await get_admin_ids()
-    if not admin_ids:
-        return
-
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    student_link_str = f"<a href='tg://user?id={student_id}'>{student_name}</a>"
-    text = (
-        f"⚠️ <b>Diqqat:</b> O'quvchi eng boshlang'ich (A1) testidan o'ta olmadi.\n\n"
-        f"👤 <b>Ism:</b> {student_link_str}\n"
-        f"🆔 <b>Telegram ID:</b> <code>{student_id}</code>\n\n"
-        f"<i>Iltimos, o'quvchi bilan bog'lanib, boshlang'ich guruh haqida ma'lumot bering.</i>"
-    )
     for admin_id in admin_ids:
-        try:
-            await bot.send_message(int(admin_id), text)
-        except Exception:
+        if admin_id in notified_teacher_ids or admin_id == student_id:
             continue
-    await bot.session.close()
+        admin_msg = (
+            f"📊 <b>Yangi test topshirildi:</b>\n\n"
+            f"👤 <b>O'quvchi:</b> {student_link} (ID: <code>{student_id}</code>)\n"
+            f"🎯 <b>Test:</b> {cert_type} ({level_str})\n"
+            f"📈 <b>To'plagan bali:</b> <b>{score}/{total}</b> (<b>{percent:.1f}%</b>)\n"
+            f"📌 <b>Holat:</b> {'✅ O\'tdi' if passed else '❌ O\'ta olmadi'}"
+        )
+        try:
+            await bot.send_message(int(admin_id), admin_msg)
+        except Exception:
+            pass
 
+    await bot.session.close()
 
 
 @router.post("/{test_id}/submit")
@@ -222,6 +236,22 @@ async def submit_test(
         percent = (correct_count / total * 100) if total else 0
         passed = percent >= float(test.passing_score)
 
+        # 1. Avval foydalanuvchini bazada borligini tekshiramiz yoki yaratamiz
+        db_user = await session.get(User, user["id"])
+        if not db_user:
+            name_parts = [user.get("first_name", ""), user.get("last_name", "")]
+            computed_name = " ".join([p for p in name_parts if p]).strip() or "O'quvchi"
+            db_user = User(
+                id=user["id"],
+                full_name=computed_name,
+                username=user.get("username"),
+            )
+            session.add(db_user)
+            await session.flush()
+
+        student_name = db_user.full_name or user.get("first_name", "O'quvchi")
+
+        # 2. Test natijasini saqlaymiz
         test_result = TestResult(
             student_id=user["id"],
             test_id=test.id,
@@ -232,60 +262,24 @@ async def submit_test(
             answers=answers_detail,
         )
         session.add(test_result)
-        await session.flush()
-
-        trial_request = None
-        if passed:
-            trial_request = FreeTrialRequest(
-                student_id=user["id"],
-                test_result_id=test_result.id,
-            )
-            session.add(trial_request)
-            await session.flush()
-
         await session.commit()
 
-        # Natija turini aniqlaymiz - frontend shunga qarab xabar ko'rsatadi
-        outcome = "passed"
-        if not passed:
-            if test.level.value == "A1":
-                outcome = "beginner_recommended"
-            else:
-                outcome = "try_lower_level"
+        # Outcome turi
+        outcome = "passed" if passed else ("beginner_recommended" if test.level.value == "A1" else "try_lower_level")
 
-        # O'quvchi ismini bazadan olamiz (agar bor bo'lsa)
-        db_user = await session.get(User, user["id"])
-        if db_user and db_user.full_name:
-            student_name = db_user.full_name
-        else:
-            student_name = user.get("first_name", "Noma'lum")
-            if user.get("last_name"):
-                student_name += f" {user['last_name']}"
-
-        cert_type = str(getattr(test, "certificate_type", "General"))
-
-        # 1. Barcha test topshirishlar haqida admin va o'qituvchilarga xabar beramiz
+        # Xabarnomalarni yuboramiz (o'quvchiga va o'qituvchiga)
         try:
-            await _notify_admins_about_test_submission(
+            await _send_test_notifications(
                 student_id=user["id"],
                 student_name=student_name,
-                test_level=test.level.value,
-                cert_type=cert_type,
+                test=test,
                 score=correct_count,
                 total=total,
                 percent=percent,
                 passed=passed,
             )
-
-            # 2. Agar o'tgan bo'lsa - Free trial accept so'rovi
-            if trial_request is not None:
-                await _notify_teachers_about_trial(
-                    trial_request.id, student_name, user["id"], test.level.value, percent
-                )
-            elif outcome == "beginner_recommended":
-                await _notify_admins_about_beginner(student_name, user["id"])
         except Exception as e:
-            print(f"⚠️ Test submission notification error: {e}")
+            print(f"⚠️ Notification error: {e}")
 
         return {
             "score": correct_count,
@@ -293,5 +287,4 @@ async def submit_test(
             "percent": round(percent, 1),
             "passed": passed,
             "outcome": outcome,
-            "free_trial_created": trial_request is not None,
         }

@@ -1,3 +1,4 @@
+import urllib.parse
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from aiogram_i18n import I18nContext
@@ -36,17 +37,33 @@ MAIN_MENU_TEXTS_EN = [
 ALL_MAIN_MENU_TEXTS = set(MAIN_MENU_TEXTS_UZ + MAIN_MENU_TEXTS_RU + MAIN_MENU_TEXTS_EN)
 
 
-def main_menu_keyboard(i18n: I18nContext) -> ReplyKeyboardMarkup:
+def main_menu_keyboard(
+    i18n: I18nContext,
+    user_id: int | None = None,
+    user_name: str | None = None,
+    username: str | None = None,
+) -> ReplyKeyboardMarkup:
     """
     i18n context orqali joriy foydalanuvchi tilida menyu quriladi.
     'Testlar' tugmasi web_app bilan - bosilganda Web App DARHOL ochiladi,
-    oraliq xabar yoki qo'shimcha bosish shart emas.
+    foydalanuvchi ma'lumotlari aniq parametr sifatida uzatiladi.
     """
     builder = ReplyKeyboardBuilder()
+
+    app_url = WEBAPP_URL
+    if app_url and user_id:
+        sep = "&" if "?" in app_url else "?"
+        params = f"user_id={user_id}"
+        if user_name:
+            params += f"&name={urllib.parse.quote(str(user_name))}"
+        if username:
+            params += f"&username={urllib.parse.quote(str(username))}"
+        app_url = f"{app_url}{sep}{params}"
+
     for fluent_key in MAIN_MENU_FLUENT_KEYS:
         text = i18n.get(fluent_key)
-        if fluent_key == "menu-tests":
-            builder.button(text=text, web_app=WebAppInfo(url=WEBAPP_URL))
+        if fluent_key == "menu-tests" and app_url and app_url.startswith("https://"):
+            builder.button(text=text, web_app=WebAppInfo(url=app_url))
         else:
             builder.button(text=text)
     builder.adjust(2, 2, 2, 2, 2, 1)
