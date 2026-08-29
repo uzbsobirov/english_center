@@ -3,21 +3,28 @@
 - Guruhning haftalik dars jadvali, xona va Zoom havolasi
 """
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram_i18n import I18nContext
 from sqlalchemy import select
 
 from backend.database import async_session
 from backend.models import Enrollment, Group, Course
+from backend.utils.formatters import format_schedule
 
 router = Router()
 
-SCHEDULE_BUTTON_TEXTS = {"📅 Jadvalim", "📅 Расписание", "📅 My Schedule"}
+SCHEDULE_BUTTON_TEXTS = {
+    "📅 Jadvalim", "📅 Расписание", "📅 My Schedule",
+    "Jadvalim", "Расписание", "My Schedule", "Schedule",
+}
 
 
+@router.message(Command("schedule"))
 @router.message(F.text.in_(SCHEDULE_BUTTON_TEXTS))
 async def show_schedule(message: Message, i18n: I18nContext):
     user_id = message.from_user.id
+    lang = getattr(i18n, "locale", "uz") or "uz"
 
     async with async_session() as session:
         enrollment_res = await session.execute(
@@ -33,8 +40,8 @@ async def show_schedule(message: Message, i18n: I18nContext):
                 [InlineKeyboardButton(text="📝 Free darsga yozilish", callback_data="start_free_trial_flow")]
             ])
             await message.answer(
-                "📅 <b>Siz hali hech qaysi guruhga a'zo emassiz.</b>\n"
-                "Jadvalni ko'rish uchun avval guruhga yoziling:",
+                "📅 <b>Siz hali hech qaysi guruhga a'zo emassiz.</b>\n\n"
+                "Dars jadvalini ko'rish uchun bepul sinov darsiga yoziling:",
                 reply_markup=keyboard,
             )
             return
@@ -46,22 +53,16 @@ async def show_schedule(message: Message, i18n: I18nContext):
         await message.answer("Guruh topilmadi.")
         return
 
-    days_map = {1: "Dushanba", 2: "Seshanba", 3: "Chorshanba", 4: "Payshanba", 5: "Juma", 6: "Shanba", 7: "Yakshanba"}
-    schedule_lines = []
-    if group.schedule:
-        for item in group.schedule:
-            d_name = days_map.get(item.get("day"), f"{item.get('day')}-kun")
-            t_name = item.get("time", "")
-            schedule_lines.append(f"🗓 <b>{d_name}:</b> {t_name}")
-    else:
-        schedule_lines.append("<i>Jadval hali kiritilmagan.</i>")
+    level_val = (course.level.value if hasattr(course.level, 'value') else str(course.level)) if course else ''
+    course_title = (course.title.get(lang, course.title.get("uz", "")) if isinstance(course.title, dict) else str(course.title)) if course else ''
+    sched_formatted = format_schedule(group.schedule, lang)
 
     text = [
         f"📅 <b>Dars Jadvalingiz:</b>\n",
         f"👥 Guruh: <b>{group.name}</b>",
-        f"📚 Kurs: <b>{course.level.value if course else ''}</b>",
-        f"📍 Xona: <b>{group.room or 'Asosiy xona'}</b>\n",
-        *schedule_lines
+        f"📚 Kurs: <b>{course_title} ({level_val})</b>" if course_title else f"📚 Daraja: <b>{level_val}</b>",
+        f"🗓 Dars vaqti: <b>{sched_formatted}</b>",
+        f"📍 Xona / Manzil: <b>{group.room or 'Asosiy xona'}</b>",
     ]
 
     buttons = []

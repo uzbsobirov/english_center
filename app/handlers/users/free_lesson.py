@@ -2,11 +2,12 @@
 📝 Free darsga yozilish (TZ v2.6, 6.1.1-bo'lim).
 - Darajani tanlab mos test orqali free darsga yozilish
 """
+import urllib.parse
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram_i18n import I18nContext
 
-from data.config import WEBAPP_URL
+from data.config import get_webapp_url
 
 router = Router()
 
@@ -57,13 +58,24 @@ async def free_trial_type_selected(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("free_trial_lvl:"))
-async def free_trial_level_selected(callback: CallbackQuery):
+async def free_trial_level_selected(callback: CallbackQuery, i18n: I18nContext):
     parts = callback.data.split(":")
     cert_type = parts[1]
     level = parts[2]
 
-    # Web App orqali test ochish havolasi
-    test_url = f"{WEBAPP_URL}?level={level}&type={cert_type}"
+    # Web App orqali test ochish havolasi (foydalanuvchi ma'lumotlari va joriy til bilan)
+    user_id = callback.from_user.id
+    user_name = callback.from_user.full_name or ""
+    username = callback.from_user.username or ""
+    locale_code = getattr(i18n, "locale", "uz") or "uz"
+
+    base_url = get_webapp_url()
+    sep = "&" if "?" in base_url else "?"
+    test_url = (
+        f"{base_url}{sep}level={level}&type={cert_type}&lang={locale_code}"
+        f"&user_id={user_id}&name={urllib.parse.quote(user_name)}&username={urllib.parse.quote(username)}"
+    )
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"🎯 {level} Testini Boshlash", web_app=WebAppInfo(url=test_url))]
     ])
@@ -76,3 +88,4 @@ async def free_trial_level_selected(callback: CallbackQuery):
         reply_markup=keyboard
     )
     await callback.answer()
+

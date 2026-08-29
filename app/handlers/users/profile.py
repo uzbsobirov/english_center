@@ -1,31 +1,45 @@
 """
-👤 Profilim bo'limi (TZ v2.6, 16.1-bo'lim).
-- Kursda o'qimasa: Stikerli karta, ma'lumotlar, referal kod + Free darsga yozilish tugmasi
-- Kursda o'qisa: Kurs nomi, o'qituvchi username linki, guruh chatiga havola, to'lov holati
+👤 Profilim bo'limi (TZ v2.6, 16.1-bo'lim & 15 Gamification).
+- Kursda o'qimasa: Stikerli karta, ma'lumotlar, referal kod, badge'lar + Free darsga yozilish tugmasi
+- Kursda o'qisa: Kurs nomi, o'qituvchi username linki, guruh chatiga havola, to'lov holati, badge'lar
 """
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram_i18n import I18nContext
 from sqlalchemy import select
 
 from backend.database import async_session
 from backend.models import User, Enrollment, Group, Course, Payment, PaymentStatusEnum
+from backend.services.gamification import get_user_badges_summary
+from backend.utils.formatters import format_schedule
 
 router = Router()
 
-PROFILE_BUTTON_TEXTS = {"👤 Profilim", "👤 Мой профиль", "👤 My Profile"}
+PROFILE_BUTTON_TEXTS = {
+    "👤 Profilim", "👤 Мой профиль", "👤 My Profile",
+    "Profilim", "Мой профиль", "My Profile", "Profile", "Profil",
+}
 
 
+@router.message(Command("profile"))
 @router.message(F.text.in_(PROFILE_BUTTON_TEXTS))
 async def show_profile(message: Message, i18n: I18nContext):
     user_id = message.from_user.id
-    lang = i18n.locale
+    lang = getattr(i18n, "locale", "uz") or "uz"
 
     async with async_session() as session:
         user = await session.get(User, user_id)
         if not user:
-            await message.answer("Foydalanuvchi ma'lumotlari topilmadi.")
-            return
+            # Agar foydalanuvchi bazada hali yo'q bo'lsa, yaratamiz
+            user = User(
+                id=user_id,
+                full_name=message.from_user.full_name or "Foydalanuvchi",
+                username=message.from_user.username,
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
 
         # Faol yozilish (Enrollment) ni tekshiramiz
         enrollment_res = await session.execute(
@@ -34,7 +48,7 @@ async def show_profile(message: Message, i18n: I18nContext):
                 Enrollment.is_active == True,
             ).order_by(Enrollment.enrolled_at.desc())
         )
-        enrollment = enrollment_res.scalar_one_or_none()
+        enrollment = enrollment_res.scalars().first()
 
         group = None
         course = None
@@ -45,7 +59,7 @@ async def show_profile(message: Message, i18n: I18nContext):
             group = await session.get(Group, enrollment.group_id)
             if group:
                 course = await session.get(Course, group.course_id)
-                teacher = await session.get(User, group.teacher_id)
+                teacher = await session.get(User, group.teacher_id) if group.teacher_id else None
 
             pay_res = await session.execute(
                 select(Payment).where(
@@ -53,17 +67,21 @@ async def show_profile(message: Message, i18n: I18nContext):
                     Payment.group_id == enrollment.group_id,
                 ).order_by(Payment.created_at.desc())
             )
-            payment = pay_res.scalar_one_or_none()
+            payment = pay_res.scalars().first()
+
+        # Badges list
+        badges = await get_user_badges_summary(user_id)
 
     # Sana formati
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "-"
     username_str = f"@{user.username}" if user.username else "Mavjud emas"
     user_name_link = f"<a href='tg://user?id={user.id}'>{user.full_name}</a>"
+    badges_str = " • ".join(badges) if badges else "Boshlang'ich"
 
     if not enrollment or not group or not course:
         # Kursda o'qimaydigan o'quvchi profili
         ref_code = user.referral_code or f"REF{user.id}"
-        lang_str = user.language.value.upper() if hasattr(user.language, "value") else str(user.language).upper()
+        lang_str = user.language.value.upper() if hasattr(user.language, "value") else str(user.language or "UZ").upper()
         text = (
             f"👤 <b>Foydalanuvchi Profili</b>\n\n"
             f"▫️ <b>Ism:</b> {user_name_link}\n"
@@ -72,7 +90,8 @@ async def show_profile(message: Message, i18n: I18nContext):
             f"▫️ <b>Telefon:</b> {user.phone or 'Kiritilmagan'}\n"
             f"▫️ <b>Til:</b> {lang_str}\n"
             f"▫️ <b>Ro'yxatdan o'tgan sana:</b> {created_date}\n"
-            f"▫️ <b>Referal kodingiz:</b> <code>{ref_code}</code>\n\n"
+            f"▫️ <b>Referal kodingiz:</b> <code>{ref_code}</code>\n"
+            f"▫️ <b>Yutuqlar / Badges:</b> {badges_str}\n\n"
             f"ℹ️ <i>Siz hozircha hech qaysi kursga yozilmagansiz.</i>"
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -86,7 +105,9 @@ async def show_profile(message: Message, i18n: I18nContext):
     else:
         # Kursda faol o'qiydigan o'quvchi profili
         course_title = course.title.get(lang, course.title.get("uz", "")) if isinstance(course.title, dict) else str(course.title)
-        
+        level_str = course.level.value if hasattr(course.level, "value") else str(course.level)
+        schedule_str = format_schedule(group.schedule, lang)
+
         # Teacher link
         if teacher and teacher.username:
             teacher_link_str = f"@{teacher.username} ({teacher.full_name})"
@@ -112,11 +133,13 @@ async def show_profile(message: Message, i18n: I18nContext):
             f"🌐 <b>Username:</b> {username_str}\n"
             f"🆔 <b>Telegram ID:</b> <code>{user.id}</code>\n"
             f"📱 <b>Telefon:</b> {user.phone or 'Kiritilmagan'}\n"
-            f"📚 <b>Kurs:</b> {course_title} ({course.level.value})\n"
+            f"📚 <b>Kurs:</b> {course_title} ({level_str})\n"
             f"👥 <b>Guruh:</b> {group.name}\n"
             f"👨‍🏫 <b>O'qituvchi:</b> {teacher_link_str}\n"
+            f"🗓 <b>Dars jadvali:</b> {schedule_str}\n"
             f"💬 <b>Guruh chati:</b> {group_chat_str}\n"
-            f"💳 <b>To'lov holati:</b> {payment_status_str}\n\n"
+            f"💳 <b>To'lov holati:</b> {payment_status_str}\n"
+            f"🎖 <b>Yutuqlar / Badges:</b> {badges_str}\n\n"
             f"📅 <b>A'zo bo'lingan sana:</b> {enrollment.enrolled_at.strftime('%d.%m.%Y')}"
         )
         

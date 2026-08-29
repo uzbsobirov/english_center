@@ -4,6 +4,7 @@ Test tizimi API'lari.
 - POST /api/tests/{test_id}/submit - javoblarni qabul qiladi, ballni hisoblaydi, natijani saqlaydi
   va agar o'tgan bo'lsa, avtomatik ravishda free-dars so'rovini yaratib, o'qituvchilarga xabar beradi
 """
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -13,7 +14,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from data.config import env
 from backend.database import async_session
-from backend.models import Test, TestResult, FreeTrialRequest, User, RoleEnum
+from backend.models import Test, TestResult, FreeTrialRequest, User, RoleEnum, LanguageEnum
 from backend.deps import get_current_telegram_user
 
 router = APIRouter(prefix="/api/tests", tags=["tests"])
@@ -119,6 +120,7 @@ from backend.models import Enrollment, Group
 async def _send_test_notifications(
     student_id: int,
     student_name: str,
+    student_username: str | None,
     test: Test,
     score: int,
     total: int,
@@ -140,6 +142,10 @@ async def _send_test_notifications(
         else str(test.title)
     )
     status_icon = "✅ Muvaffaqiyatli o'tdingiz!" if passed else "❌ O'tish balini to'play olmadingiz."
+
+    from aiogram.types import BufferedInputFile
+    from backend.services.certificate_generator import generate_certificate_pdf
+    from backend.services.gamification import award_badge_if_eligible
 
     # 1. O'quvchining o'ziga botdan to'g'ridan-to'g'ri xabar
     student_msg = (
@@ -168,7 +174,43 @@ async def _send_test_notifications(
         )
         enrolled_groups = enrollments_res.all()
 
+        # Agar testdan muvaffaqiyatli o'tgan bo'lsa va guruhda o'qisa -> Avtomatik Sertifikat beramiz!
+        if passed and enrolled_groups:
+            try:
+                cert_pdf_bytes = generate_certificate_pdf(
+                    student_name=student_name,
+                    course_type=cert_type,
+                    level=level_str,
+                )
+                safe_name = student_name.replace(" ", "_")
+                cert_file = BufferedInputFile(
+                    cert_pdf_bytes,
+                    filename=f"Certificate_{safe_name}_{level_str}.pdf",
+                )
+                await bot.send_document(
+                    student_id,
+                    cert_file,
+                    caption=(
+                        f"🎓 <b>Tabriklaymiz, {student_name}!</b>\n\n"
+                        f"Siz <b>{cert_type} ({level_str})</b> kursi yakuniy testini "
+                        f"<b>{percent:.1f}%</b> ball bilan muvaffaqiyatli topshirdingiz!\n\n"
+                        f"Kursni to'liq tamomlaganingiz uchun sizga rasmiy <b>PDF Sertifikat</b> "
+                        f"va 🎓 <b>Graduate Badge</b> topshirildi! 🌟\n\n"
+                        f"Kelgusi o'qish va faoliyatingizda ulkan zafarlar tilaymiz! 🚀"
+                    ),
+                )
+                await award_badge_if_eligible(student_id, "graduate")
+
+                # Enrollment holatini completed ga o'tkazamiz
+                for enr, _ in enrolled_groups:
+                    enr.status = EnrollmentStatusEnum.completed
+                    enr.completed_at = datetime.utcnow()
+                await session.commit()
+            except Exception as e:
+                print(f"⚠️ Avtomatik sertifikat yuborishda xatolik ({student_id}): {e}")
+
     student_link = f"<a href='tg://user?id={student_id}'>{student_name}</a>"
+    student_user_str = f" (@{student_username})" if student_username else ""
 
     if enrolled_groups:
         for enrollment, group in enrolled_groups:
@@ -176,11 +218,11 @@ async def _send_test_notifications(
                 notified_teacher_ids.add(group.teacher_id)
                 teacher_msg = (
                     f"📝 <b>Guruhingiz o'quvchisi test topshirdi!</b>\n\n"
-                    f"👤 <b>O'quvchi:</b> {student_link}\n"
+                    f"👤 <b>O'quvchi:</b> {student_link}{student_user_str}\n"
                     f"👥 <b>Guruh:</b> <b>{group.name}</b>\n"
                     f"🎯 <b>Test:</b> {cert_type} — {level_str}\n"
                     f"📊 <b>Natija:</b> <b>{score}/{total}</b> (<b>{percent:.1f}%</b>)\n"
-                    f"📌 <b>Holat:</b> {'✅ O\'tdi' if passed else '❌ O\'ta olmadi'}"
+                    f"📌 <b>Holat:</b> {'✅ O\'tdi (🎓 Avtomatik Sertifikat berildi)' if passed else '❌ O\'ta olmadi'}"
                 )
                 try:
                     await bot.send_message(group.teacher_id, teacher_msg)
@@ -194,17 +236,15 @@ async def _send_test_notifications(
             continue
         admin_msg = (
             f"📊 <b>Yangi test topshirildi:</b>\n\n"
-            f"👤 <b>O'quvchi:</b> {student_link} (ID: <code>{student_id}</code>)\n"
+            f"👤 <b>O'quvchi:</b> {student_link}{student_user_str} (ID: <code>{student_id}</code>)\n"
             f"🎯 <b>Test:</b> {cert_type} ({level_str})\n"
             f"📈 <b>To'plagan bali:</b> <b>{score}/{total}</b> (<b>{percent:.1f}%</b>)\n"
-            f"📌 <b>Holat:</b> {'✅ O\'tdi' if passed else '❌ O\'ta olmadi'}"
+            f"📌 <b>Holat:</b> {'✅ O\'tdi (🎓 Avtomatik Sertifikat berildi)' if passed else '❌ O\'ta olmadi'}"
         )
         try:
             await bot.send_message(int(admin_id), admin_msg)
         except Exception:
             pass
-
-    await bot.session.close()
 
 
 @router.post("/{test_id}/submit")
@@ -245,11 +285,14 @@ async def submit_test(
                 id=user["id"],
                 full_name=computed_name,
                 username=user.get("username"),
+                role=RoleEnum.student,
+                language=LanguageEnum.uz,
             )
             session.add(db_user)
             await session.flush()
 
         student_name = db_user.full_name or user.get("first_name", "O'quvchi")
+        student_username = db_user.username or user.get("username")
 
         # 2. Test natijasini saqlaymiz
         test_result = TestResult(
@@ -267,19 +310,19 @@ async def submit_test(
         # Outcome turi
         outcome = "passed" if passed else ("beginner_recommended" if test.level.value == "A1" else "try_lower_level")
 
-        # Xabarnomalarni yuboramiz (o'quvchiga va o'qituvchiga)
-        try:
-            await _send_test_notifications(
+        # Xabarnomalarni asinxron fonda yuboramiz (o'quvchiga va o'qituvchiga/adminlarga)
+        asyncio.create_task(
+            _send_test_notifications(
                 student_id=user["id"],
                 student_name=student_name,
+                student_username=student_username,
                 test=test,
                 score=correct_count,
                 total=total,
                 percent=percent,
                 passed=passed,
             )
-        except Exception as e:
-            print(f"⚠️ Notification error: {e}")
+        )
 
         return {
             "score": correct_count,

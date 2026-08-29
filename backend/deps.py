@@ -10,7 +10,7 @@ import hmac
 import json
 from urllib.parse import parse_qsl, unquote
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from data.config import env
 
@@ -19,7 +19,7 @@ DEV_MODE = env.bool("DEV_MODE", True)
 
 
 def _calculate_hash(init_data: str, bot_token: str) -> tuple[str, dict]:
-    parsed = dict(parse_qsl(init_data, strict_parsing=True))
+    parsed = dict(parse_qsl(init_data, strict_parsing=False))
     received_hash = parsed.pop("hash", None)
 
     data_check_string = "\n".join(
@@ -44,7 +44,7 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
 
     try:
         calculated_hash, parsed = _calculate_hash(init_data, BOT_TOKEN)
-        received_hash = dict(parse_qsl(init_data, strict_parsing=True)).get("hash")
+        received_hash = dict(parse_qsl(init_data, strict_parsing=False)).get("hash")
     except Exception:
         return None
 
@@ -62,6 +62,7 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
 
 
 async def get_current_telegram_user(
+    request: Request,
     x_telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
     x_telegram_user_data: str | None = Header(default=None, alias="X-Telegram-User-Data"),
 ) -> dict:
@@ -69,12 +70,13 @@ async def get_current_telegram_user(
     FastAPI dependency:
     1. X-Telegram-Init-Data orqali HMAC tekshiruvi.
     2. Agar tunnel / redirect sababli initData uzilgan bo'lsa, X-Telegram-User-Data client headeri.
-    3. Hech biri bo'lmasa va DEV_MODE bo'lsa - test foydalanuvchisi.
+    3. Request URL query paramlari orqali tekshirish (?user_id=...).
+    4. Faqat Swagger/Docs test rejimida fallback (hech qachon real admin ID ishlatilmaydi).
     """
     # 1. To'liq initData HMAC tekshiruvi
     if x_telegram_init_data:
         user_info = verify_telegram_init_data(x_telegram_init_data)
-        if user_info:
+        if user_info and "id" in user_info:
             return user_info
 
     # 2. Telegram WebApp client yuborgan to'g'ridan-to'g'ri foydalanuvchi ma'lumoti
@@ -82,22 +84,31 @@ async def get_current_telegram_user(
         try:
             decoded = unquote(x_telegram_user_data)
             user_data = json.loads(decoded)
-            if user_data and "id" in user_data:
+            if user_data and "id" in user_data and int(user_data["id"]) > 0:
                 return user_data
         except Exception:
             pass
 
-    # 3. Faqat test rejimida fallback
+    # 3. Request URL query params fallback (?user_id=123&name=Ali&username=alivali)
+    user_id_param = request.query_params.get("user_id")
+    if user_id_param and user_id_param.isdigit() and int(user_id_param) > 0:
+        return {
+            "id": int(user_id_param),
+            "first_name": request.query_params.get("name", "O'quvchi"),
+            "username": request.query_params.get("username", ""),
+        }
+
+    # 4. Faqat Swagger/Docs test rejimida fallback (Admin ID ga emas, neytral dev ID ga)
     if DEV_MODE:
         return {
-            "id": 1435473812,
-            "first_name": "Developer",
-            "last_name": "User",
-            "username": "developer",
+            "id": 999999999,
+            "first_name": "Dev",
+            "last_name": "Tester",
+            "username": "dev_test_user",
             "language_code": "uz",
         }
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Telegram autentifikatsiyasi amalga oshmadi",
+        detail="Telegram autentifikatsiyasi amalga oshmadi. Iltimos, testni bot orqali oching.",
     )

@@ -1,15 +1,15 @@
 """
 📋 Uy Vazifam bo'limi (TZ v2.6, 16.4-bo'lim).
 - Guruhda o'qimasa: «Siz hozircha hech qaysi kursda o'qimayapsiz» + Free dars tugmasi
-- Guruhda o'qisa: Faol uy vazifalari ro'yxati, muddati, fayl biriktirmalari
+- Guruhda o'qisa: Faol uy vazifalari ro'yxati, muddati va biriktirilgan fayllarni yuklab olish
 """
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram_i18n import I18nContext
 from sqlalchemy import select
 
 from backend.database import async_session
-from backend.models import Enrollment, Homework, Group
+from backend.models import Enrollment, Homework, Group, User
 
 router = Router()
 
@@ -19,6 +19,7 @@ HOMEWORK_BUTTON_TEXTS = {"📋 Uy Vazifam", "📋 Домашнее задани�
 @router.message(F.text.in_(HOMEWORK_BUTTON_TEXTS))
 async def show_homework(message: Message, i18n: I18nContext):
     user_id = message.from_user.id
+    lang = getattr(i18n, "locale", "uz") or "uz"
 
     async with async_session() as session:
         # O'quvchining faol guruhini topamiz
@@ -31,19 +32,34 @@ async def show_homework(message: Message, i18n: I18nContext):
         enrollment = enrollment_res.scalar_one_or_none()
 
         if not enrollment:
+            if lang == "uz":
+                not_enrolled_text = (
+                    "📚 <b>Siz hozircha hech qaysi guruhda o'qimayapsiz.</b>\n\n"
+                    "Guruhga a'zo bo'lish va dars materiallaridan foydalanish uchun bepul sinov darsiga yoziling:"
+                )
+                free_btn_text = "📝 Free darsga yozilish"
+            elif lang == "ru":
+                not_enrolled_text = (
+                    "📚 <b>Вы пока не состоите ни в одной группе.</b>\n\n"
+                    "Запишитесь на бесплатный пробный урок, чтобы присоединиться к группе:"
+                )
+                free_btn_text = "📝 Запись на бесплатный урок"
+            else:
+                not_enrolled_text = (
+                    "📚 <b>You are not currently enrolled in any active group.</b>\n\n"
+                    "Book a free trial lesson to join a course group:"
+                )
+                free_btn_text = "📝 Book free lesson"
+
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📝 Free darsga yozilish", callback_data="start_free_trial_flow")]
+                [InlineKeyboardButton(text=free_btn_text, callback_data="start_free_trial_flow")]
             ])
-            await message.answer(
-                "📚 <b>Siz hozircha hech qaysi guruhda o'qimayapsiz.</b>\n\n"
-                "Kurslarimizga a'zo bo'lish uchun bepul sinov darsiga yoziling:",
-                reply_markup=keyboard,
-            )
+            await message.answer(not_enrolled_text, reply_markup=keyboard)
             return
 
         group = await session.get(Group, enrollment.group_id)
 
-        # Guruhning uy vazifalarini olamiz
+        # Guruhning eng so'nggi 5 ta uy vazifasini olamiz
         hw_res = await session.execute(
             select(Homework).where(
                 Homework.group_id == enrollment.group_id
@@ -52,18 +68,67 @@ async def show_homework(message: Message, i18n: I18nContext):
         homeworks = hw_res.scalars().all()
 
     if not homeworks:
-        await message.answer(
+        empty_msg = (
             f"📋 <b>{group.name if group else 'Guruh'}</b> bo'yicha hozircha yangi uy vazifalari yo'q. Baraka toping! 🎉"
+            if lang == "uz"
+            else (
+                f"📋 По группе <b>{group.name if group else 'Группа'}</b> пока нет активных домашних заданий. 🎉"
+                if lang == "ru"
+                else f"📋 No active homework assignments for <b>{group.name if group else 'Group'}</b>. Well done! 🎉"
+            )
         )
+        await message.answer(empty_msg)
         return
 
-    text = [f"📋 <b>{group.name} guruhi uy vazifalari:</b>\n"]
+    header = (
+        f"📋 <b>{group.name} guruhi uy vazifalari:</b>\n"
+        if lang == "uz"
+        else (
+            f"📋 <b>Домашние задания группы {group.name}:</b>\n"
+            if lang == "ru"
+            else f"📋 <b>Homework for {group.name}:</b>\n"
+        )
+    )
+
     for idx, hw in enumerate(homeworks, 1):
-        due_str = hw.due_at.strftime("%d.%m.%Y %H:%M") if hw.due_at else "Belgilanmagan"
-        text.append(
+        due_str = hw.due_at.strftime("%d.%m.%Y %H:%M") if hw.due_at else "-"
+        card_text = (
             f"<b>{idx}. {hw.title}</b>\n"
             f"📝 {hw.description or 'Qo\'shimcha izoh yo\'q'}\n"
-            f"⏳ <b>Topshirish muddati:</b> {due_str}\n"
+            f"⏳ <b>Muddat:</b> {due_str}"
         )
 
-    await message.answer("\n".join(text))
+        buttons = []
+        if hw.file_id:
+            buttons.append([InlineKeyboardButton(text="📥 Faylni yuklab olish", callback_data=f"get_hw_file:{hw.id}")])
+
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+        await message.answer(card_text, reply_markup=reply_markup)
+
+
+@router.callback_query(F.data.startswith("get_hw_file:"))
+async def send_homework_file(callback: CallbackQuery):
+    hw_id = int(callback.data.split(":")[1])
+
+    async with async_session() as session:
+        hw = await session.get(Homework, hw_id)
+
+    if not hw or not hw.file_id:
+        await callback.answer("Fayl topilmadi.", show_alert=True)
+        return
+
+    from main import bot
+    try:
+        await bot.send_document(
+            callback.from_user.id,
+            hw.file_id,
+            caption=f"📎 <b>{hw.title}</b> dars materiali",
+        )
+        await callback.answer("Fayl yuborildi!")
+    except Exception:
+        # Fayl rasm yoki audio bo'lishi mumkin
+        try:
+            await bot.send_photo(callback.from_user.id, hw.file_id, caption=f"📎 <b>{hw.title}</b>")
+            await callback.answer("Rasm yuborildi!")
+        except Exception:
+            await callback.answer("Faylni yuklashda xatolik yuz berdi.", show_alert=True)

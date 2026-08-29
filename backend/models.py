@@ -184,6 +184,7 @@ class Payment(Base):
     student_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
     amount: Mapped[float] = mapped_column(Numeric(10, 2))
+    discount_amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0.0)
     method: Mapped[PaymentMethodEnum] = mapped_column(Enum(PaymentMethodEnum))
     status: Mapped[PaymentStatusEnum] = mapped_column(Enum(PaymentStatusEnum), default=PaymentStatusEnum.pending)
     confirmed_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
@@ -386,4 +387,6 @@ class UserBadge(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
     badge_type: Mapped[str] = mapped_column(String(50))  # starter, top_student, regular, ambassador, etc.
-    earned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    earned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+

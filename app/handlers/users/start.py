@@ -12,6 +12,7 @@ from app.state.registration import Registration
 from app.keyboards.language import language_keyboard, LANGUAGE_BUTTONS
 from app.keyboards.contact import phone_keyboard
 from app.keyboards.main_menu import main_menu_keyboard
+from backend.services.user_service import is_admin_or_manager, is_teacher
 
 router = Router()
 
@@ -27,6 +28,7 @@ async def start(message: Message, command: CommandObject, state: FSMContext, i18
     if user is not None:
         # Oldin ro'yxatdan o'tgan foydalanuvchi - to'g'ridan-to'g'ri asosiy menyu
         await state.clear()
+        is_admin = await is_admin_or_manager(user.id) or await is_teacher(user.id)
         await message.answer(
             i18n.get("welcome-back", name=user.full_name),
             reply_markup=main_menu_keyboard(
@@ -34,6 +36,7 @@ async def start(message: Message, command: CommandObject, state: FSMContext, i18
                 user_id=message.from_user.id,
                 user_name=user.full_name or message.from_user.full_name,
                 username=message.from_user.username,
+                is_admin=is_admin,
             ),
         )
         return

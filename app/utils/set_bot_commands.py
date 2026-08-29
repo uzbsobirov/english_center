@@ -3,10 +3,10 @@ from aiogram.types import BotCommand
 
 async def set_bot_commands(bot: Bot):
     """
-    Bot uchun komandalarni sozlash
+    Bot komandalar menyusi - minimalist va professional darajada.
+    Barcha kundalik amallar 100% reply & inline tugmalar orqali boshqariladi.
     """
     commands = [
-        BotCommand(command="start", description="Start the bot"),
-        BotCommand(command="help", description="Show help")
+        BotCommand(command="start", description="🚀 Asosiy Menyu"),
     ]
     await bot.set_my_commands(commands=commands)

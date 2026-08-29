@@ -9,6 +9,7 @@ invalid-phone = Iltimos, tugma orqali raqamingizni yuboring.
 # Asosiy menyu tugmalari
 menu-courses = 📚 Kurslar
 menu-tests = 🎯 Testlar
+menu-payments = 💳 To'lov
 menu-homework = 📋 Uy Vazifam
 menu-schedule = 📅 Jadvalim
 menu-profile = 👤 Profilim

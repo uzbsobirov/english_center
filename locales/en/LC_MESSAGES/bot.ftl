@@ -9,6 +9,7 @@ invalid-phone = Please share your number using the button.
 # Main menu buttons
 menu-courses = 📚 Courses
 menu-tests = 🎯 Tests
+menu-payments = 💳 Payment
 menu-homework = 📋 Homework
 menu-schedule = 📅 My Schedule
 menu-profile = 👤 My Profile

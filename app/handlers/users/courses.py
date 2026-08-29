@@ -105,6 +105,10 @@ async def course_detail_callback(callback: CallbackQuery, i18n: I18nContext):
                 InlineKeyboardButton(
                     text=f"📝 Free darsga yozilish ({g.name})",
                     callback_data=f"book_trial_group:{g.id}",
+                ),
+                InlineKeyboardButton(
+                    text=f"💳 To'lov qilish",
+                    callback_data=f"pay_group:{g.id}",
                 )
             ])
 
@@ -131,13 +135,14 @@ async def courses_back_callback(callback: CallbackQuery, i18n: I18nContext):
     await callback.answer()
 
 
-from data.config import WEBAPP_URL
+import urllib.parse
+from data.config import get_webapp_url
 from aiogram.types import WebAppInfo
 from backend.models import TestResult, Test
 
 
 @router.callback_query(F.data.startswith("book_trial_group:"))
-async def book_trial_group_callback(callback: CallbackQuery):
+async def book_trial_group_callback(callback: CallbackQuery, i18n: I18nContext):
     group_id = int(callback.data.split(":")[1])
     student_id = callback.from_user.id
 
@@ -167,7 +172,16 @@ async def book_trial_group_callback(callback: CallbackQuery):
 
         if not passed_test:
             # Test topshirilmagan bo'lsa - avval testga yo'naltiramiz
-            test_url = f"{WEBAPP_URL}?level={course.level.value}&type={course.type.value if hasattr(course.type, 'value') else course.type}"
+            base_url = get_webapp_url()
+            sep = "&" if "?" in base_url else "?"
+            cert_t = course.type.value if hasattr(course.type, 'value') else course.type
+            user_name = callback.from_user.full_name or ""
+            username = callback.from_user.username or ""
+            locale_code = getattr(i18n, "locale", "uz") or "uz"
+            test_url = (
+                f"{base_url}{sep}level={course.level.value}&type={cert_t}&lang={locale_code}"
+                f"&user_id={student_id}&name={urllib.parse.quote(user_name)}&username={urllib.parse.quote(username)}"
+            )
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=f"🎯 {course.level.value} Testini Boshlash", web_app=WebAppInfo(url=test_url))]
             ])

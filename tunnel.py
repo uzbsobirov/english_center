@@ -1,8 +1,8 @@
 """
-Avtomatik va Uzluksiz Tunnel Skripti (Serveo orqali)
-1. 5173 portni internetga ulaydi
+Avtomatlashtirilgan va Uzluksiz Tunnel Skripti (Cloudflare & Ngrok qo'llab-quvvatlaydi).
+1. 5173 portni (Vite WebApp) internetga ulaydi
 2. .env fayliga yangi WEBAPP_URL ni o'zi yozib qo'yadi
-3. Agar uzilib qolsa, avtomatik qayta ulanadi (Auto-reconnect)
+3. Uzilib qolmaydi, o'ta tez va xavfsiz ishlaydi
 """
 import subprocess
 import re
@@ -29,19 +29,13 @@ def update_env(new_url):
         f.write(content)
     print(f"\n[OK] .env yangilandi: WEBAPP_URL={new_url}")
 
-def run_tunnel():
-    print("=" * 60)
-    print("[*] Tunnel ishga tushirilmoqda (serveo.net)...")
-    print("=" * 60)
+def run_cloudflare_tunnel():
+    print("=" * 65)
+    print("[*] Cloudflare Tunnel ishga tushirilmoqda (localhost:5173)...")
+    print("=" * 65)
 
-    cmd = [
-        "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "ServerAliveInterval=15",
-        "-o", "ServerAliveCountMax=3",
-        "-R", "80:127.0.0.1:5173",
-        "serveo.net"
-    ]
+    bin_name = "cloudflared.cmd" if os.name == "nt" else "cloudflared"
+    cmd = [bin_name, "tunnel", "--url", "http://localhost:5173"]
     
     proc = subprocess.Popen(
         cmd,
@@ -50,7 +44,8 @@ def run_tunnel():
         text=True,
         bufsize=1,
         encoding='utf-8',
-        errors='replace'
+        errors='replace',
+        shell=True,
     )
 
     url_found = False
@@ -58,16 +53,15 @@ def run_tunnel():
         for line in iter(proc.stdout.readline, ''):
             print(line, end='')
             if not url_found:
-                match = re.search(r'https://[a-zA-Z0-9\.\-_]+\.serveousercontent\.com', line)
+                match = re.search(r'https://[a-zA-Z0-9\.\-_]+\.trycloudflare\.com', line)
                 if match:
                     url = match.group(0)
                     url_found = True
                     update_env(url)
-                    print("\n" + "=" * 60)
-                    print(f"[SUCCESS] TAYYOR! SIZNING HTTPS HAVOLANGIZ:")
-                    print(f"URL: {url}")
-                    print("=" * 60)
-                    print("\nEndi 1-terminaldagi botni (python main.py) qayta ishga tushiring!\n")
+                    print("\n" + "=" * 65)
+                    print(f"🎉 [SUCCESS] CLOUDFLARE HTTPS TUNNEL TAYYOR!")
+                    print(f"🔗 URL: {url}")
+                    print("=" * 65 + "\n")
         proc.wait()
     except KeyboardInterrupt:
         print("\nTunnel to'xtatildi.")
@@ -78,7 +72,7 @@ def run_tunnel():
 
 def main():
     while True:
-        should_continue = run_tunnel()
+        should_continue = run_cloudflare_tunnel()
         if not should_continue:
             break
         print("\n[!] Tunnel uzildi. 3 soniyadan so'ng avtomatik qayta ulanadi...")

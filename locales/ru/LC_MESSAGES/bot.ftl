@@ -9,6 +9,7 @@ invalid-phone = Пожалуйста, отправьте номер через �
 # Кнопки главного меню
 menu-courses = 📚 Курсы
 menu-tests = 🎯 Тесты
+menu-payments = 💳 Оплата
 menu-homework = 📋 Домашнее задание
 menu-schedule = 📅 Расписание
 menu-profile = 👤 Мой профиль

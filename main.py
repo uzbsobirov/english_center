@@ -45,13 +45,21 @@ async def main():
     await set_bot_commands(bot)
     await notify_admins(bot)
     
-    # 4. Polling boshlash
+    # 4. Fon eslatmalar xizmatini ishga tushirish
+    from backend.services.scheduler import start_scheduler, stop_scheduler
+    start_scheduler(bot)
+
+    # 5. Polling boshlash
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        stop_scheduler()
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Bot to'xtatildi")
+        print("Bot to'xtatildi")
+

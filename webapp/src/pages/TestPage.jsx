@@ -1,61 +1,108 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "../api/client";
+import { getTelegramLanguage, setTelegramLanguage } from "../lib/telegram";
+import { getTranslation } from "../lib/translations";
 
-const TEST_TYPES = [
+const TEST_TYPES_BASE = [
   {
     id: "CEFR",
-    title: "🎯 CEFR Testlari",
-    subtitle: "Grammatika va leksika darajasi",
     badge: "CEFR",
     color: "from-blue-600 to-indigo-600",
   },
   {
     id: "IELTS",
-    title: "🇬🇧 IELTS Testlari",
-    subtitle: "Academic & General tayyorgarlik",
     badge: "IELTS",
     color: "from-purple-600 to-pink-600",
   },
 ];
 
 const LEVELS = [
-  { code: "A1", name: "Beginner", ielts: "Band 3.0-3.5", desc: "Boshlang'ich daraja" },
-  { code: "A2", name: "Elementary", ielts: "Band 4.0-4.5", desc: "Oddiy muloqot" },
-  { code: "B1", name: "Intermediate", ielts: "Band 5.0-5.5", desc: "O'rta daraja" },
-  { code: "B2", name: "Upper-Int.", ielts: "Band 6.0-6.5", desc: "Kuchli o'rta" },
-  { code: "C1", name: "Advanced", ielts: "Band 7.0-8.0", desc: "Yuqori daraja" },
-  { code: "C2", name: "Proficiency", ielts: "Band 8.5-9.0", desc: "Mukammal" },
+  { code: "A1", name: "Beginner", ielts: "Band 3.0-3.5" },
+  { code: "A2", name: "Elementary", ielts: "Band 4.0-4.5" },
+  { code: "B1", name: "Intermediate", ielts: "Band 5.0-5.5" },
+  { code: "B2", name: "Upper-Int.", ielts: "Band 6.0-6.5" },
+  { code: "C1", name: "Advanced", ielts: "Band 7.0-8.0" },
+  { code: "C2", name: "Proficiency", ielts: "Band 8.5-9.0" },
 ];
 
-function CategoryAndLevelSelect({ selectedType, onSelectType, onSelectLevel }) {
+function LanguageSwitcher({ currentLang, onChangeLang }) {
+  const languages = [
+    { code: "uz", label: "🇺🇿 UZ" },
+    { code: "ru", label: "🇷🇺 RU" },
+    { code: "en", label: "🇬🇧 EN" },
+  ];
+
+  return (
+    <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-xl shadow-inner text-xs font-bold">
+      {languages.map((l) => (
+        <button
+          key={l.code}
+          onClick={() => onChangeLang(l.code)}
+          className={`px-2.5 py-1 rounded-lg transition-all ${
+            currentLang === l.code
+              ? "bg-white text-blue-600 shadow-sm font-extrabold"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          {l.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CategoryAndLevelSelect({
+  lang,
+  onChangeLang,
+  selectedType,
+  onSelectType,
+  onSelectLevel,
+}) {
+  const t = getTranslation(lang);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 max-w-md mx-auto">
+      {/* Top Navbar with Language Switcher */}
+      <div className="w-full flex justify-between items-center mt-2 mb-4">
+        <span className="text-xs font-extrabold text-blue-600 uppercase tracking-widest">
+          ALPHA LC
+        </span>
+        <LanguageSwitcher currentLang={lang} onChangeLang={onChangeLang} />
+      </div>
+
       {/* Header */}
-      <div className="w-full text-center mt-4 mb-6">
-        <h1 className="text-2xl font-black text-slate-800 tracking-tight">Ingliz Tili Testlari</h1>
-        <p className="text-slate-500 text-sm mt-1">Yo'nalish va darajangizni tanlang</p>
+      <div className="w-full text-center mb-6">
+        <h1 className="text-2xl font-black text-slate-800 tracking-tight">
+          {t.appTitle}
+        </h1>
+        <p className="text-slate-500 text-sm mt-1">{t.appSubtitle}</p>
       </div>
 
       {/* 1-QADAM: Yo'nalish tanlash */}
       <div className="w-full mb-6">
         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-          1. Yo'nalishni tanlang:
+          {t.step1Title}
         </label>
         <div className="grid grid-cols-2 gap-3">
-          {TEST_TYPES.map((t) => {
-            const isSelected = selectedType === t.id;
+          {TEST_TYPES_BASE.map((item) => {
+            const isSelected = selectedType === item.id;
+            const typeInfo = t.types[item.id] || {};
             return (
               <button
-                key={t.id}
-                onClick={() => onSelectType(t.id)}
+                key={item.id}
+                onClick={() => onSelectType(item.id)}
                 className={`relative p-4 rounded-2xl text-left transition-all border-2 ${
                   isSelected
                     ? "border-blue-600 bg-white shadow-md ring-2 ring-blue-600/20"
                     : "border-slate-200 bg-white/70 hover:bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
-                <div className="font-extrabold text-base text-slate-800 mb-1">{t.title}</div>
-                <div className="text-xs text-slate-500 leading-tight">{t.subtitle}</div>
+                <div className="font-extrabold text-base text-slate-800 mb-1">
+                  {typeInfo.title || item.id}
+                </div>
+                <div className="text-xs text-slate-500 leading-tight">
+                  {typeInfo.subtitle || ""}
+                </div>
                 {isSelected && (
                   <span className="absolute top-2 right-2 flex h-2.5 w-2.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
@@ -71,26 +118,29 @@ function CategoryAndLevelSelect({ selectedType, onSelectType, onSelectLevel }) {
       {/* 2-QADAM: Daraja tanlash */}
       <div className="w-full">
         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-          2. Darajani tanlang ({selectedType}):
+          {t.step2Title.replace("{selectedType}", selectedType)}
         </label>
         <div className="grid grid-cols-2 gap-3">
-          {LEVELS.map((lvl) => (
-            <button
-              key={lvl.code}
-              onClick={() => onSelectLevel(lvl.code)}
-              className="bg-white hover:bg-blue-50/60 active:scale-95 border border-slate-200 hover:border-blue-300 rounded-2xl p-3.5 text-left transition shadow-sm hover:shadow group"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-lg font-black text-slate-800 group-hover:text-blue-600 transition">
-                  {lvl.code}
-                </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
-                  {selectedType === "IELTS" ? lvl.ielts : lvl.name}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">{lvl.desc}</p>
-            </button>
-          ))}
+          {LEVELS.map((lvl) => {
+            const lvlDesc = t.levels[lvl.code]?.desc || "";
+            return (
+              <button
+                key={lvl.code}
+                onClick={() => onSelectLevel(lvl.code)}
+                className="bg-white hover:bg-blue-50/60 active:scale-95 border border-slate-200 hover:border-blue-300 rounded-2xl p-3.5 text-left transition shadow-sm hover:shadow group"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-lg font-black text-slate-800 group-hover:text-blue-600 transition">
+                    {lvl.code}
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                    {selectedType === "IELTS" ? lvl.ielts : lvl.name}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">{lvlDesc}</p>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -103,11 +153,15 @@ function getInitialParams() {
   const initialLevel = params.get("level");
   return {
     type: initialType.toUpperCase() === "IELTS" ? "IELTS" : "CEFR",
-    level: initialLevel && LEVELS.some((l) => l.code === initialLevel.toUpperCase()) ? initialLevel.toUpperCase() : null,
+    level:
+      initialLevel && LEVELS.some((l) => l.code === initialLevel.toUpperCase())
+        ? initialLevel.toUpperCase()
+        : null,
   };
 }
 
 function TestPage() {
+  const [lang, setLang] = useState(getTelegramLanguage);
   const [initialParams] = useState(getInitialParams);
   const [selectedType, setSelectedType] = useState(initialParams.type);
   const [level, setLevel] = useState(initialParams.level);
@@ -117,6 +171,13 @@ function TestPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const t = getTranslation(lang);
+
+  const handleLanguageChange = (newLang) => {
+    setLang(newLang);
+    setTelegramLanguage(newLang);
+  };
 
   useEffect(() => {
     if (!level) return;
@@ -160,6 +221,8 @@ function TestPage() {
   if (!level) {
     return (
       <CategoryAndLevelSelect
+        lang={lang}
+        onChangeLang={handleLanguageChange}
         selectedType={selectedType}
         onSelectType={setSelectedType}
         onSelectLevel={setLevel}
@@ -172,7 +235,7 @@ function TestPage() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-3"></div>
-        <p className="text-slate-600 font-medium text-sm">Test savollari yuklanmoqda...</p>
+        <p className="text-slate-600 font-medium text-sm">{t.loading}</p>
       </div>
     );
   }
@@ -183,7 +246,7 @@ function TestPage() {
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center">
         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 max-w-sm w-full">
           <div className="text-3xl mb-2">⚠️</div>
-          <h2 className="text-lg font-bold text-slate-800 mb-2">Test yuklanmadi</h2>
+          <h2 className="text-lg font-bold text-slate-800 mb-2">{t.errorTitle}</h2>
           <p className="text-slate-500 text-xs mb-5">{error}</p>
           <button
             onClick={() => {
@@ -192,7 +255,7 @@ function TestPage() {
             }}
             className="w-full bg-blue-600 text-white rounded-xl py-3 font-bold hover:bg-blue-700 transition"
           >
-            Boshqa test tanlash
+            {t.changeTest}
           </button>
         </div>
       </div>
@@ -209,7 +272,7 @@ function TestPage() {
         <div className="bg-white rounded-3xl shadow-lg border border-slate-100 p-6 text-center max-w-sm w-full space-y-4">
           <div className="text-4xl mb-1">{isPassed ? "🎉" : "📚"}</div>
           <h2 className="text-xl font-extrabold text-slate-800">
-            {isPassed ? "Ajoyib natija!" : "Test yakunlandi"}
+            {isPassed ? t.resultPassedTitle : t.resultFailedTitle}
           </h2>
 
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
@@ -217,14 +280,14 @@ function TestPage() {
               {result.percent}%
             </div>
             <p className="text-slate-500 text-xs font-semibold">
-              {result.score} / {result.total} ta to'g'ri javob
+              {t.correctAnswers
+                .replace("{score}", result.score)
+                .replace("{total}", result.total)}
             </p>
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            {isPassed
-              ? "Tabriklaymiz! Siz o'tish balini to'pladingiz. Natijangiz Telegram botingizga yuborildi."
-              : "Bu daraja uchun ball yetarli bo'lmadi. Bilimingizni mustahkamlab, qayta urinib ko'rishingiz mumkin."}
+            {isPassed ? t.resultPassedDesc : t.resultFailedDesc}
           </p>
 
           <button
@@ -235,7 +298,7 @@ function TestPage() {
             }}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3.5 font-bold transition shadow-md"
           >
-            Yana test ishlash
+            {t.retakeTest}
           </button>
         </div>
       </div>
@@ -246,7 +309,7 @@ function TestPage() {
   const answeredCount = Object.keys(answers).length;
   const testTitle =
     typeof test.title === "object"
-      ? test.title.uz || test.title.en || "Daraja testi"
+      ? test.title[lang] || test.title.uz || test.title.en || "Test"
       : test.title;
 
   return (
@@ -258,14 +321,14 @@ function TestPage() {
             onClick={() => setLevel(null)}
             className="text-xs text-blue-600 font-bold hover:underline mb-0.5 inline-block"
           >
-            ◀️ Orqaga
+            {t.back}
           </button>
-          <h1 className="text-base font-bold text-slate-800 leading-tight">{testTitle}</h1>
+          <h1 className="text-base font-bold text-slate-800 leading-tight">
+            {testTitle}
+          </h1>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="bg-purple-100 text-purple-800 text-[11px] font-extrabold px-2.5 py-1 rounded-lg">
-            {test.certificate_type || selectedType}
-          </span>
+          <LanguageSwitcher currentLang={lang} onChangeLang={handleLanguageChange} />
           <span className="bg-blue-100 text-blue-800 text-[11px] font-extrabold px-2.5 py-1 rounded-lg">
             {level}
           </span>
@@ -280,7 +343,8 @@ function TestPage() {
             className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 transition"
           >
             <p className="font-semibold text-slate-800 mb-3 text-sm leading-snug">
-              <span className="text-blue-600 font-bold mr-1">{idx + 1}.</span> {q.text}
+              <span className="text-blue-600 font-bold mr-1">{idx + 1}.</span>{" "}
+              {q.text}
             </p>
             <div className="space-y-2">
               {q.options?.map((opt) => {
@@ -312,8 +376,10 @@ function TestPage() {
           className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3.5 font-bold transition disabled:bg-slate-300 disabled:cursor-not-allowed shadow-md text-sm"
         >
           {submitting
-            ? "⏳ Natijalar hisoblanmoqda..."
-            : `Yakunlash (${answeredCount}/${test.questions.length})`}
+            ? t.submitting
+            : t.submitButton
+                .replace("{answered}", answeredCount)
+                .replace("{total}", test.questions.length)}
         </button>
       </div>
     </div>
