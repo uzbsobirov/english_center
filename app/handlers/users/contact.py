@@ -164,15 +164,31 @@ async def question_received(message: Message, state: FSMContext, i18n: I18nConte
                 course_lvl = course.level.value if course else ""
                 group_info_str = f"<b>{group.name}</b> ({course_lvl})"
 
-        chat = SupportChat(
-            student_id=student_id,
-            status=SupportChatStatusEnum.open,
-            last_message_by="student",
-            last_message_at=datetime.utcnow(),
+        # Avval ushbu o'quvchining ochiq muloqoti bormi tekshiramiz
+        existing_chat_res = await session.execute(
+            select(SupportChat)
+            .where(
+                SupportChat.student_id == student_id,
+                SupportChat.status == SupportChatStatusEnum.open,
+            )
+            .order_by(SupportChat.created_at.desc())
         )
-        session.add(chat)
-        await session.commit()
-        chat_id = chat.id
+        chat = existing_chat_res.scalars().first()
+        if chat:
+            chat.last_message_by = "student"
+            chat.last_message_at = datetime.utcnow()
+            await session.commit()
+            chat_id = chat.id
+        else:
+            chat = SupportChat(
+                student_id=student_id,
+                status=SupportChatStatusEnum.open,
+                last_message_by="student",
+                last_message_at=datetime.utcnow(),
+            )
+            session.add(chat)
+            await session.commit()
+            chat_id = chat.id
 
     await state.clear()
     await message.answer(
@@ -307,16 +323,28 @@ async def close_support_chat(callback: CallbackQuery, state: FSMContext):
 
     async with async_session() as session:
         chat = await session.get(SupportChat, chat_id)
-        if chat and chat.status == SupportChatStatusEnum.open:
-            chat.status = SupportChatStatusEnum.closed
-            chat.closed_at = datetime.utcnow()
-            chat.closed_reason = SupportChatClosedReasonEnum.resolved
+        target_student_id = chat.student_id if chat else None
+
+        # Ushbu chatni va shu o'quvchiga tegishli barcha ochiq chatlarni to'liq yopamiz
+        if target_student_id:
+            await session.execute(
+                update(SupportChat)
+                .where(
+                    SupportChat.student_id == target_student_id,
+                    SupportChat.status == SupportChatStatusEnum.open,
+                )
+                .values(
+                    status=SupportChatStatusEnum.closed,
+                    closed_at=datetime.utcnow(),
+                    closed_reason=SupportChatClosedReasonEnum.resolved,
+                )
+            )
             await session.commit()
 
             from main import bot
             try:
                 await bot.send_message(
-                    chat.student_id,
+                    target_student_id,
                     "🔒 Muloqot yakunlandi. Agar yana savollaringiz bo'lsa, bemalol murojaat qiling!"
                 )
             except Exception:

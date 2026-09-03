@@ -62,3 +62,38 @@ async def is_teacher(telegram_id: int) -> bool:
             return False
         role_val = user.role.value if hasattr(user.role, "value") else str(user.role)
         return role_val in ("teacher", "admin", "manager") and user.is_active
+
+
+async def add_admin(telegram_id: int, full_name: str | None = None) -> User:
+    """Promote an existing user to Admin or create a new Admin record."""
+    async with async_session() as session:
+        user = await session.get(User, telegram_id)
+        if user:
+            user.role = RoleEnum.admin
+            user.is_active = True
+            if full_name:
+                user.full_name = full_name
+        else:
+            user = User(
+                id=telegram_id,
+                full_name=full_name or f"Admin #{telegram_id}",
+                role=RoleEnum.admin,
+                referral_code=f"ADM{telegram_id % 10000}",
+                is_active=True,
+            )
+            session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
+async def remove_admin(telegram_id: int, new_role: RoleEnum = RoleEnum.student) -> User | None:
+    """Demote a user from Admin to another role (default: student)."""
+    async with async_session() as session:
+        user = await session.get(User, telegram_id)
+        if not user:
+            return None
+        user.role = new_role
+        await session.commit()
+        await session.refresh(user)
+        return user

@@ -612,16 +612,49 @@ async def approve_refund(callback: CallbackQuery):
                 processed_at=datetime.utcnow(),
             )
         )
-        await session.commit()
-
         if result.rowcount == 0:
             await callback.answer("Bu so'rov allaqachon ko'rib chiqilgan.", show_alert=True)
             return
 
         refund = await session.get(Refund, refund_id)
 
+        # 1. O'quvchini guruhdan chiqaramiz (Enrollment deactive qilamiz)
+        enr_res = await session.execute(
+            select(Enrollment).where(
+                Enrollment.student_id == refund.student_id,
+                Enrollment.group_id == refund.group_id,
+                Enrollment.is_active == True,
+            )
+        )
+        enr = enr_res.scalar_one_or_none()
+        if enr:
+            enr.status = EnrollmentStatusEnum.dropped
+            enr.is_active = False
+            enr.completed_at = datetime.utcnow()
+
+        # 2. To'lov holatini refunded ga o'tkazamiz
+        if refund.payment_id:
+            pay = await session.get(Payment, refund.payment_id)
+            if pay:
+                pay.status = PaymentStatusEnum.refunded
+        else:
+            await session.execute(
+                update(Payment)
+                .where(
+                    Payment.student_id == refund.student_id,
+                    Payment.group_id == refund.group_id,
+                    Payment.status == PaymentStatusEnum.confirmed,
+                )
+                .values(status=PaymentStatusEnum.refunded)
+            )
+
+        group = await session.get(Group, refund.group_id)
+        group_name = group.name if group else "Guruh"
+
+        await session.commit()
+
     await callback.message.edit_text(
-        callback.message.text + f"\n\n✅ <b>Refund tasdiqlandi!</b> (Admin: {callback.from_user.full_name})"
+        callback.message.text + f"\n\n✅ <b>Refund tasdiqlandi va o'quvchi guruhdan chiqarildi!</b> (Admin: {callback.from_user.full_name})"
     )
     await callback.answer("Refund tasdiqlandi!")
 
@@ -630,8 +663,9 @@ async def approve_refund(callback: CallbackQuery):
         await bot.send_message(
             refund.student_id,
             f"💰 <b>Qaytarish (Refund) so'rovingiz tasdiqlandi!</b>\n\n"
-            f"Qaytariladigan summa: <b>{float(refund.calculated_amount):,.0f} so'm</b>\n"
-            f"Iltimos, mablag'ni qabul qilish uchun ma'muriyat bilan bog'laning.",
+            f"👥 Guruh: <b>{group_name}</b>\n"
+            f"💵 Qaytariladigan summa: <b>{float(refund.calculated_amount):,.0f} so'm</b>\n\n"
+            f"ℹ️ <i>Siz rasman guruh a'zoligidan chiqarildingiz. Mablag'ni qabul qilish uchun ma'muriyat bilan bog'laning.</i>",
         )
     except Exception:
         pass

@@ -181,6 +181,7 @@ async def book_trial_group_callback(callback: CallbackQuery, i18n: I18nContext):
             test_url = (
                 f"{base_url}{sep}level={course.level.value}&type={cert_t}&lang={locale_code}"
                 f"&user_id={student_id}&name={urllib.parse.quote(user_name)}&username={urllib.parse.quote(username)}"
+                f"&is_trial=true"
             )
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=f"🎯 {course.level.value} Testini Boshlash", web_app=WebAppInfo(url=test_url))]

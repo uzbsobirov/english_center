@@ -56,6 +56,7 @@ async def start_attendance(message: Message):
         [InlineKeyboardButton(text=f"👥 {g.name}", callback_data=f"att_group:{g.id}")]
         for g in groups
     ]
+    buttons.append([InlineKeyboardButton(text="🎯 Sinov darslari davomati (Free Trial)", callback_data="show_trial_attendance_list")])
     await message.answer(
         "📋 <b>Dars Davomati</b>\n\nDavomat olmoqchi bo'lgan guruhingizni tanlang:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),

@@ -17,6 +17,7 @@ menu-progress = 📊 Progress
 menu-ranking = 🏆 Reyting
 menu-referral = 👥 Referal
 menu-language = 🌐 Til
+menu-settings = ⚙️ Sozlamalar
 menu-contact = 📞 Bog'lanish
 menu-free-lesson = 📝 Free darsga yozilish
 

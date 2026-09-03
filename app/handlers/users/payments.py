@@ -19,6 +19,7 @@ from backend.database import async_session
 from backend.models import (
     Group, Course, Payment, PaymentMethodEnum, PaymentStatusEnum,
     Enrollment, EnrollmentStatusEnum, User, ReferralBonus,
+    FreeTrialRequest, TestResult, Test
 )
 from backend.services.gamification import award_badge_if_eligible
 
@@ -47,8 +48,102 @@ async def _get_active_groups():
 
 @router.message(Command("pay"))
 @router.message(F.text.in_(PAY_BUTTON_TEXTS))
-async def start_payment(message: Message, i18n: I18nContext, state: FSMContext):
+@router.callback_query(F.data == "start_payment_flow")
+async def start_payment(event: Message | CallbackQuery, i18n: I18nContext, state: FSMContext):
     lang = getattr(i18n, "locale", "uz") or "uz"
+    student_id = event.from_user.id
+    msg_target = event if isinstance(event, Message) else event.message
+
+    async with async_session() as session:
+        # 1. O'quvchining faol a'zo bo'lgan guruhi bormi?
+        enrolled_res = await session.execute(
+            select(Group, Course)
+            .join(Course, Group.course_id == Course.id)
+            .join(Enrollment, Group.id == Enrollment.group_id)
+            .where(
+                Enrollment.student_id == student_id,
+                Enrollment.is_active == True,
+                Group.is_active == True,
+            ).order_by(Enrollment.enrolled_at.desc()).limit(1)
+        )
+        matched = enrolled_res.first()
+
+        # 2. Free darsga yozilgan/taklif qilingan guruhi bormi?
+        if not matched:
+            trial_res = await session.execute(
+                select(FreeTrialRequest)
+                .where(FreeTrialRequest.student_id == student_id)
+                .order_by(FreeTrialRequest.created_at.desc()).limit(1)
+            )
+            trial = trial_res.scalars().first()
+            if trial:
+                if trial.group_id:
+                    grp = await session.get(Group, trial.group_id)
+                    if grp and grp.is_active:
+                        crs = await session.get(Course, grp.course_id)
+                        if crs:
+                            matched = (grp, crs)
+                elif trial.test_result_id:
+                    t_res = await session.get(TestResult, trial.test_result_id)
+                    if t_res:
+                        t_obj = await session.get(Test, t_res.test_id)
+                        if t_obj:
+                            grp_res = await session.execute(
+                                select(Group, Course)
+                                .join(Course, Group.course_id == Course.id)
+                                .where(
+                                    Course.level == t_obj.level,
+                                    Group.is_active == True,
+                                ).limit(1)
+                            )
+                            matched = grp_res.first()
+
+        if matched:
+            group, course = matched
+            teacher = await session.get(User, group.teacher_id) if group.teacher_id else None
+            teacher_name = teacher.full_name if teacher else "O'qituvchi"
+            sched_str = _format_schedule(group.schedule, lang)
+            course_title = course.title.get(lang, course.title.get("uz", "Kurs")) if isinstance(course.title, dict) else str(course.title)
+
+            buttons = [
+                [InlineKeyboardButton(
+                    text=f"💳 {group.name} uchun to'lov qilish",
+                    callback_data=f"pay_group:{group.id}",
+                )],
+                [InlineKeyboardButton(
+                    text="🔄 Boshqa guruhni tanlash",
+                    callback_data="pay_show_all_groups",
+                )],
+            ]
+
+            card_text = (
+                f"💳 <b>Kurs To'lovi</b>\n\n"
+                f"🎯 <b>Siz yozilgan guruh:</b> <b>{group.name}</b>\n"
+                f"📚 <b>Kurs:</b> {course_title} ({course.level.value})\n"
+                f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
+                f"🗓 <b>Dars jadvali:</b> {sched_str}\n"
+                f"💰 <b>Oylik to'lov:</b> <b>{float(course.price):,.0f} so'm</b>\n\n"
+                f"<i>To'lovni amalga oshirish uchun quyidagi tugmani bosing:</i>"
+            )
+            if isinstance(event, CallbackQuery):
+                try:
+                    await event.message.edit_text(card_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+                except Exception:
+                    try:
+                        await event.message.delete()
+                    except Exception:
+                        pass
+                    await event.message.answer(card_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+                await event.answer()
+            else:
+                await event.answer(card_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+            return
+
+    # Agar aniq biriktirilgan guruh topilmasa — barcha faol guruhlarni ko'rsatamiz
+    await _show_all_groups_menu(event, lang)
+
+
+async def _show_all_groups_menu(target: Message | CallbackQuery, lang: str):
     groups = await _get_active_groups()
     if not groups:
         msg = (
@@ -56,7 +151,11 @@ async def start_payment(message: Message, i18n: I18nContext, state: FSMContext):
             if lang == "uz"
             else ("В настоящее время активных групп нет." if lang == "ru" else "No active groups available at the moment.")
         )
-        await message.answer(msg)
+        if isinstance(target, CallbackQuery):
+            await target.message.edit_text(msg)
+            await target.answer()
+        else:
+            await target.answer(msg)
         return
 
     buttons = [
@@ -76,10 +175,17 @@ async def start_payment(message: Message, i18n: I18nContext, state: FSMContext):
             else "💳 <b>Course Payment</b>\n\nPlease select the group you want to pay for:"
         )
     )
-    await message.answer(
-        header_text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-    )
+    if isinstance(target, CallbackQuery):
+        await target.message.edit_text(header_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        await target.answer()
+    else:
+        await target.answer(header_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@router.callback_query(F.data == "pay_show_all_groups")
+async def pay_show_all_groups_callback(callback: CallbackQuery, i18n: I18nContext):
+    lang = getattr(i18n, "locale", "uz") or "uz"
+    await _show_all_groups_menu(callback, lang)
 
 
 @router.callback_query(F.data.startswith("pay_group:"))
@@ -309,6 +415,7 @@ async def online_pay_complete(callback: CallbackQuery, i18n: I18nContext, state:
         course_price = float(course.price) if course else 0.0
         is_full_payment = (final_price + discount_amount) >= course_price
 
+        referrer_id = None
         if is_full_payment and student and student.referred_by and not student.referral_bonus_given:
             session.add(ReferralBonus(
                 user_id=student.referred_by,
@@ -319,17 +426,30 @@ async def online_pay_complete(callback: CallbackQuery, i18n: I18nContext, state:
             ))
             student.referral_bonus_given = True
             referrer_id = student.referred_by
-        else:
-            referrer_id = None
+
+        group_name = group.name if group else "Guruh"
+        group_chat_link = group.group_chat_link if group else None
+        student_name = student.full_name if student else (callback.from_user.full_name or "O'quvchi")
 
         await session.commit()
 
+    # Guruh linki tugmasi
+    success_buttons = []
+    if group_chat_link:
+        success_buttons.append([InlineKeyboardButton(text="👥 Guruh Telegram Chati", url=group_chat_link)])
+
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=success_buttons) if success_buttons else None
+
+    chat_link_info = f"🔗 <b>Guruh Telegram Chati:</b> <a href='{group_chat_link}'>Guruhga qo'shilish</a>\n\n" if group_chat_link else ""
+
     await callback.message.edit_text(
         f"🎉 <b>To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
-        f"👥 Guruh: <b>{group.name if group else ''}</b>\n"
+        f"👥 Guruh: <b>{group_name}</b>\n"
         f"💳 To'lov turi: <b>{provider.upper()}</b>\n"
         f"💰 To'langan summa: <b>{final_price:,.0f} so'm</b>\n\n"
-        f"Siz rasman guruh a'zosiga aylandingiz! Endi «📅 Jadvalim» va «📋 Uy Vazifam» bo'limlaridan to'liq foydalanishingiz mumkin."
+        f"{chat_link_info}"
+        f"Siz rasman guruh a'zosiga aylandingiz! Endi «📅 Jadvalim» va «📋 Uy Vazifam» bo'limlaridan to'liq foydalanishingiz mumkin.",
+        reply_markup=reply_markup,
     )
     await callback.answer("To'lov muvaffaqiyatli!", show_alert=True)
     await state.clear()
@@ -342,7 +462,7 @@ async def online_pay_complete(callback: CallbackQuery, i18n: I18nContext, state:
             await bot.send_message(
                 referrer_id,
                 f"🎁 <b>Ajoyib xabar!</b>\n\n"
-                f"Siz taklif qilgan do'stingiz (<b>{callback.from_user.full_name}</b>) kurs to'lovini amalga oshirdi va o'qishni boshladi!\n"
+                f"Siz taklif qilgan do'stingiz (<b>{student_name}</b>) kurs to'lovini amalga oshirdi va o'qishni boshladi!\n"
                 f"Sizga keyingi oy to'lovi uchun <b>+5% chegirma bonusi</b> va 👥 <b>Ambassador badge</b> berildi! 🌟",
             )
         except Exception:
@@ -510,6 +630,14 @@ async def confirm_payment(callback: CallbackQuery):
             ))
             student.referral_bonus_given = True
             referrer_id = student.referred_by
+        teacher_name = teacher.full_name if teacher else "O'qituvchi tayinlanmoqda"
+        student_lang = student.language.value if student and student.language else "uz"
+        schedule_str = _format_schedule(group.schedule if group else None, student_lang)
+        room_str = group.room or group.zoom_link or "O'quv markazi xonasi"
+        group_name = group.name if group else ""
+        group_chat_link = group.group_chat_link if group else None
+        student_name = student.full_name if student else "O'quvchi"
+        student_id_target = payment.student_id
 
         await session.commit()
 
@@ -520,21 +648,25 @@ async def confirm_payment(callback: CallbackQuery):
 
     # O'quvchiga tabrik va guruh ma'lumotlari
     from main import bot
-    teacher_name = teacher.full_name if teacher else "O'qituvchi tayinlanmoqda"
-    schedule_str = _format_schedule(group.schedule if group else None, student.language.value if student and student.language else "uz")
-    room_str = group.room or group.zoom_link or "O'quv markazi xonasi"
+    chat_link_info = f"🔗 <b>Guruh Telegram Chati:</b> <a href='{group_chat_link}'>Guruhga qo'shilish</a>\n\n" if group_chat_link else ""
+    success_buttons = []
+    if group_chat_link:
+        success_buttons.append([InlineKeyboardButton(text="👥 Guruh Telegram Chati", url=group_chat_link)])
+
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=success_buttons) if success_buttons else None
 
     congrats_text = (
         f"🎉 <b>To'lovingiz tasdiqlandi!</b>\n\n"
         f"Siz rasman guruhga qabul qilindingiz:\n"
-        f"👥 <b>Guruh:</b> {group.name if group else ''}\n"
+        f"👥 <b>Guruh:</b> {group_name}\n"
         f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
         f"🗓 <b>Dars jadvali:</b> {schedule_str}\n"
         f"🚪 <b>Xona / Manzil:</b> {room_str}\n\n"
+        f"{chat_link_info}"
         f"Endi bot menyusidan «📅 Jadvalim» va «📋 Uy Vazifam» bo'limlarini kuzatib borishingiz mumkin. O'qishlaringizda muvaffaqiyat tilaymiz! 🚀"
     )
     try:
-        await bot.send_message(payment.student_id, congrats_text, parse_mode="HTML")
+        await bot.send_message(student_id_target, congrats_text, reply_markup=reply_markup, parse_mode="HTML")
     except Exception:
         pass
 
@@ -545,7 +677,7 @@ async def confirm_payment(callback: CallbackQuery):
             await bot.send_message(
                 referrer_id,
                 f"🎁 <b>Ajoyib xabar!</b>\n\n"
-                f"Siz taklif qilgan do'stingiz (<b>{student.full_name}</b>) kurs to'lovini amalga oshirdi va o'qishni boshladi!\n"
+                f"Siz taklif qilgan do'stingiz (<b>{student_name}</b>) kurs to'lovini amalga oshirdi va o'qishni boshladi!\n"
                 f"Sizga keyingi oy to'lovi uchun <b>+5% chegirma bonusi</b> va 👥 <b>Ambassador badge</b> berildi! 🌟",
             )
         except Exception:

@@ -5,6 +5,8 @@ from .homework import router as homework_router
 from .payments import router as payments_router
 from .certificate import router as certificate_router
 from .admin_panel import router as admin_panel_router
+from .broadcast import router as broadcast_router
+from .requests_approval import router as requests_approval_router
 
 
 def setup(dp: Dispatcher):
@@ -13,6 +15,8 @@ def setup(dp: Dispatcher):
     """
     dp.include_routers(
         admin_panel_router,
+        broadcast_router,
+        requests_approval_router,
         trial_requests_router,
         attendance_router,
         homework_router,

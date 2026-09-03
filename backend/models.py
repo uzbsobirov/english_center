@@ -259,6 +259,21 @@ class WaitingList(Base):
     notified: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class GroupChangeRequest(Base):
+    """TZ 6.3, 7.6 & 12: Guruhni o'zgartirish so'rovi."""
+    __tablename__ = "group_change_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    student_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
+    current_group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    target_group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    reason: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending / approved / rejected
+    approved_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class ReferralBonus(Base):
     """TZ 14.1 & 12: jamlanadigan foizli chegirma tizimi."""
     __tablename__ = "referral_bonuses"
@@ -297,7 +312,9 @@ class Test(Base):
 
 class QuestionTypeEnum(str, enum.Enum):
     mcq = "mcq"
+    true_false = "true_false"
     fill_blank = "fill_blank"
+    short_answer = "short_answer"
     translation = "translation"
     audio = "audio"
 

@@ -160,35 +160,26 @@ async def homework_file_saved(event: Message | CallbackQuery, state: FSMContext)
 
     from main import bot
     notify_text = (
-        f"📋 <b>Yangi uy vazifasi qo'shildi!</b>\n\n"
-        f"👥 Guruh: <b>{data['group_name']}</b>\n"
-        f"📌 <b>{title}</b>\n"
-        f"{'📝 ' + desc + chr(10) if desc else ''}\n"
-        f"⏳ <b>Topshirish muddati:</b> {due_date.strftime('%d.%m.%Y %H:%M')}"
+        f"📖 <b>UYGA VAZIFA YUKLANDI!</b>\n\n"
+        f"👥 <b>Guruh:</b> {data['group_name']}\n"
+        f"📌 <b>Mavzu:</b> <b>{title}</b>\n"
+        f"{'📝 <b>Vazifa tavsifi:</b> ' + desc + chr(10) if desc else ''}\n"
+        f"⏳ <b>Topshirish muddati:</b> {due_date.strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"ℹ️ <i>Iltimos, botning <b>«📋 Uy Vazifam»</b> bo'limini tekshiring va topshiriqni o'z vaqtida bajaring!</i>"
     )
+
+    hw_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Uyga vazifani tekshirish", callback_data=f"show_current_hw:{group_id}")]
+    ])
 
     for s in students:
         try:
-            if file_id:
-                if file_type == "document":
-                    await bot.send_document(s.id, file_id, caption=notify_text)
-                elif file_type == "photo":
-                    await bot.send_photo(s.id, file_id, caption=notify_text)
-                elif file_type == "audio":
-                    await bot.send_audio(s.id, file_id, caption=notify_text)
-                elif file_type == "video":
-                    await bot.send_video(s.id, file_id, caption=notify_text)
-                elif file_type == "voice":
-                    await bot.send_voice(s.id, file_id, caption=notify_text)
-                else:
-                    await bot.send_message(s.id, notify_text)
-            else:
-                await bot.send_message(s.id, notify_text)
+            await bot.send_message(s.id, notify_text, reply_markup=hw_keyboard)
         except Exception:
             continue
 
     await state.clear()
-    success_msg = f"✅ <b>Uy vazifasi muvaffaqiyatli saqlandi va guruhdagi barcha o'quvchilarga ({len(students)} ta) tarqatildi!</b>"
+    success_msg = f"✅ <b>Uy vazifasi muvaffaqiyatli saqlandi va guruhdagi barcha faol o'quvchilarga ({len(students)} ta) tarqatildi!</b>"
     if isinstance(event, CallbackQuery):
         await event.message.edit_text(success_msg)
         await event.answer()

@@ -6,7 +6,7 @@ from aiogram_i18n import I18nContext
 from sqlalchemy import select
 
 from backend.database import async_session
-from backend.models import User, LanguageEnum
+from backend.models import User, LanguageEnum, RoleEnum
 
 from app.state.registration import Registration
 from app.keyboards.language import language_keyboard, LANGUAGE_BUTTONS
@@ -108,19 +108,36 @@ async def name_entered(message: Message, state: FSMContext, i18n: I18nContext):
 
 @router.message(Registration.entering_phone, F.contact)
 async def phone_shared(message: Message, state: FSMContext, i18n: I18nContext):
-    if not message.contact or not message.from_user:
-        await message.answer(i18n.get("invalid-phone"))
+    # 1. Forward qilingan kontaktlarni tekshiramiz va rad etamiz
+    is_forwarded = bool(
+        getattr(message, "forward_origin", None)
+        or getattr(message, "forward_from", None)
+        or getattr(message, "forward_from_chat", None)
+    )
+    if is_forwarded:
+        await message.answer(
+            "⚠️ <b>Forward qilingan kontaktlar qabul qilinmaydi!</b>\n\n"
+            "Iltimos, pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.",
+            reply_markup=phone_keyboard(i18n),
+        )
         return
 
-    # Faqat o'zining raqamini yuborganini tekshiramiz
-    if message.contact.user_id != message.from_user.id:
-        await message.answer(i18n.get("invalid-phone"))
+    # 2. Faqat o'zining Telegram akkauntiga tegishli raqam ekanligini qat'iy tekshiramiz
+    if not message.contact or message.contact.user_id != message.from_user.id:
+        await message.answer(
+            "⚠️ <b>Xatolik!</b> Siz boshqa shaxsning kontaktini yubordingiz.\n\n"
+            "Iltimos, faqat pastdagi <b>«📱 Raqamni yuborish»</b> tugmasi orqali <b>o'zingizning</b> raqamingizni yuboring!",
+            reply_markup=phone_keyboard(i18n),
+        )
         return
 
     data = await state.get_data()
     full_name = data.get("full_name", message.from_user.full_name)
     language = data.get("language", "uz")
     referred_by = data.get("referred_by")
+
+    from data.config import ADMINS
+    is_admin_user = str(message.from_user.id) in [str(a) for a in ADMINS]
 
     async with async_session() as session:
         user = await session.get(User, message.from_user.id)
@@ -129,6 +146,8 @@ async def phone_shared(message: Message, state: FSMContext, i18n: I18nContext):
             user.username = message.from_user.username
             user.phone = message.contact.phone_number
             user.language = LanguageEnum(language) if isinstance(language, str) else language
+            if is_admin_user:
+                user.role = RoleEnum.admin
             if referred_by and not user.referred_by:
                 user.referred_by = referred_by
         else:
@@ -138,8 +157,9 @@ async def phone_shared(message: Message, state: FSMContext, i18n: I18nContext):
                 username=message.from_user.username,
                 phone=message.contact.phone_number,
                 language=LanguageEnum(language) if isinstance(language, str) else language,
+                role=RoleEnum.admin if is_admin_user else RoleEnum.student,
                 referred_by=referred_by,
-                referral_code=f"REF{message.from_user.id}",
+                referral_code=f"ADMIN{message.from_user.id % 10000}" if is_admin_user else f"REF{message.from_user.id}",
             )
             session.add(user)
         await session.commit()
@@ -165,11 +185,16 @@ async def phone_shared(message: Message, state: FSMContext, i18n: I18nContext):
             user_id=message.from_user.id,
             user_name=full_name,
             username=message.from_user.username,
+            is_admin=is_admin_user,
         ),
     )
 
 
 @router.message(Registration.entering_phone)
 async def phone_invalid(message: Message, i18n: I18nContext):
-    # Foydalanuvchi tugma o'rniga matn yozib yuborsa
-    await message.answer(i18n.get("invalid-phone"))
+    # Foydalanuvchi tugma o'rniga matn yozib yuborsa yoki boshqa narsa yuborsa
+    await message.answer(
+        "⚠️ <b>Telefon raqamni qo'lda yozish yoki forward qilish mumkin emas!</b>\n\n"
+        "Iltimos, pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.",
+        reply_markup=phone_keyboard(i18n),
+    )

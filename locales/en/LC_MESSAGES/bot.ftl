@@ -17,6 +17,7 @@ menu-progress = 📊 Progress
 menu-ranking = 🏆 Ranking
 menu-referral = 👥 Referral
 menu-language = 🌐 Language
+menu-settings = ⚙️ Settings
 menu-contact = 📞 Contact
 menu-free-lesson = 📝 Book free lesson
 

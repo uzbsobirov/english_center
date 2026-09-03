@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.deps import get_current_telegram_user
-from backend.api.routes import tests, courses, teacher, admin, student
+from backend.api.routes import tests, courses, teacher, admin, student, payments
 
 app = FastAPI(title="English Center API", version="2.6")
 
@@ -35,5 +35,6 @@ app.include_router(courses.router)
 app.include_router(teacher.router)
 app.include_router(admin.router)
 app.include_router(student.router)
+app.include_router(payments.router)
 
 

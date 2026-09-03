@@ -21,6 +21,9 @@ async def start_free_lesson(event: Message | CallbackQuery, i18n: I18nContext):
         [
             InlineKeyboardButton(text="🎯 IELTS", callback_data="free_trial_type:IELTS"),
             InlineKeyboardButton(text="🎯 CEFR", callback_data="free_trial_type:CEFR"),
+        ],
+        [
+            InlineKeyboardButton(text="🎯 General English", callback_data="free_trial_type:General"),
         ]
     ])
     text = (
@@ -28,7 +31,10 @@ async def start_free_lesson(event: Message | CallbackQuery, i18n: I18nContext):
         "Qaysi yo'nalish bo'yicha tahsil olmoqchisiz?"
     )
     if isinstance(event, CallbackQuery):
-        await event.message.answer(text, reply_markup=keyboard)
+        try:
+            await event.message.edit_text(text, reply_markup=keyboard)
+        except Exception:
+            await event.message.answer(text, reply_markup=keyboard)
         await event.answer()
     else:
         await event.answer(text, reply_markup=keyboard)
@@ -74,6 +80,7 @@ async def free_trial_level_selected(callback: CallbackQuery, i18n: I18nContext):
     test_url = (
         f"{base_url}{sep}level={level}&type={cert_type}&lang={locale_code}"
         f"&user_id={user_id}&name={urllib.parse.quote(user_name)}&username={urllib.parse.quote(username)}"
+        f"&is_trial=true"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[

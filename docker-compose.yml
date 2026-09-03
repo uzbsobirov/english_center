@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Ma'lumotlar Bazasi
+  postgres:
+    image: postgres:16-alpine
+    container_name: english_center_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-english_center}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:-1234}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-english_center}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. FastAPI Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: english_center_backend
+    restart: always
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMINS=${ADMINS}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASS=${DB_PASS:-1234}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-english_center}
+      - WEBAPP_URL=${WEBAPP_URL}
+      - DEV_MODE=${DEV_MODE:-False}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+
+  # 3. Aiogram Telegram Boti & Rejalashtiruvchi (Scheduler)
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: english_center_bot
+    restart: always
+    command: ["python", "main.py"]
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMINS=${ADMINS}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASS=${DB_PASS:-1234}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-english_center}
+      - WEBAPP_URL=${WEBAPP_URL}
+      - DEV_MODE=${DEV_MODE:-False}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  # 4. Vite React WebApp Frontend
+  frontend:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: english_center_frontend
+    restart: always
+    expose:
+      - "80"
+
+  # 5. Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: english_center_nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  pgdata:
+    driver: local

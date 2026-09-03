@@ -1,0 +1,23 @@
+[
+  {
+    "order_num": 1,
+    "type": "mcq",
+    "text": "📖 Passage:\nRemote work has changed the way many companies operate. While some employees appreciate the flexibility of working from home, others argue that face-to-face collaboration leads to better teamwork and faster decision-making. Several studies suggest that a hybrid model, combining remote and office work, may offer the best balance between productivity and employee satisfaction.\n\n❓ Question:\nAccording to the passage, what is suggested as a possible solution?",
+    "options": [
+      "A) Working from home full-time",
+      "B) Working in the office full-time",
+      "C) A hybrid model combining both",
+      "D) Reducing working hours"
+    ],
+    "correct_answer": "C) A hybrid model combining both",
+    "needs_review": false
+  },
+  {
+    "order_num": 2,
+    "type": "short_answer",
+    "text": "📖 Passage:\nRemote work has changed the way many companies operate. While some employees appreciate the flexibility of working from home, others argue that face-to-face collaboration leads to better teamwork and faster decision-making. Several studies suggest that a hybrid model, combining remote and office work, may offer the best balance between productivity and employee satisfaction.\n\n❓ Question:\nIn your own words, explain one advantage and one disadvantage of remote work mentioned in the passage.",
+    "options": [],
+    "correct_answer": "Advantage: Flexibility of working from home. Disadvantage: Lack of face-to-face collaboration (which leads to better teamwork and faster decision-making).",
+    "needs_review": false
+  }
+]
