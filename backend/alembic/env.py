@@ -19,6 +19,18 @@ config = context.config
 
 # Migratsiya uchun SINXRON (psycopg2) URL ishlatamiz, asyncpg emas
 db_url = os.getenv("DATABASE_URL_SYNC")
+if not db_url:
+    async_url = os.getenv("DATABASE_URL")
+    if async_url:
+        db_url = async_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+    else:
+        db_user = os.getenv("DB_USER", "postgres")
+        db_pass = os.getenv("DB_PASS", "1234")
+        db_host = os.getenv("DB_HOST", "127.0.0.1")
+        db_port = os.getenv("DB_PORT", "5432")
+        db_name = os.getenv("DB_NAME", "english_center")
+        db_url = f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
 

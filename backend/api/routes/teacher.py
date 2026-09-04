@@ -260,8 +260,11 @@ async def save_test(
         }
 
     async with async_session() as session:
+        t_user = await session.get(User, user["id"])
+        teacher_fk = t_user.id if t_user else None
+
         test = Test(
-            teacher_id=user["id"],
+            teacher_id=teacher_fk,
             certificate_type=payload.certificate_type,
             level=LevelEnum(payload.level),
             title=payload.title,

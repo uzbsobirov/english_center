@@ -7,12 +7,17 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
-# .env dan o'qiladi, masalan:
-# DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/english_center
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:1234@localhost:5432/english_center",
-)
+# 1. To'g'ridan-to'g'ri DATABASE_URL berilgan bo'lsa o'qiladi
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# 2. Agar yo'q bo'lsa, alohida DB_USER, DB_PASS, DB_HOST, DB_PORT, DB_NAME dan yig'iladi
+if not DATABASE_URL:
+    db_user = os.getenv("DB_USER", "postgres")
+    db_pass = os.getenv("DB_PASS", "1234")
+    db_host = os.getenv("DB_HOST", "127.0.0.1")
+    db_port = os.getenv("DB_PORT", "5432")
+    db_name = os.getenv("DB_NAME", "english_center")
+    DATABASE_URL = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 

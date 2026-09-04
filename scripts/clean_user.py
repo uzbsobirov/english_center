@@ -5,7 +5,12 @@ Foydalanish:
     yoki barcha test o'quvchilarni tozalash (admin saqlanadi):
     python clean_user.py --all-students
 """
+import os
 import sys
+
+# Ensure repository root is on sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import asyncio
 from sqlalchemy import text
 from backend.database import async_session

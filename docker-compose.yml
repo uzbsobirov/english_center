@@ -36,6 +36,8 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:-english_center}
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASS:-1234}@postgres:5432/${DB_NAME:-english_center}
+      - DATABASE_URL_SYNC=postgresql+psycopg2://${DB_USER:-postgres}:${DB_PASS:-1234}@postgres:5432/${DB_NAME:-english_center}
       - WEBAPP_URL=${WEBAPP_URL}
       - DEV_MODE=${DEV_MODE:-False}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
@@ -62,6 +64,8 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:-english_center}
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASS:-1234}@postgres:5432/${DB_NAME:-english_center}
+      - DATABASE_URL_SYNC=postgresql+psycopg2://${DB_USER:-postgres}:${DB_PASS:-1234}@postgres:5432/${DB_NAME:-english_center}
       - WEBAPP_URL=${WEBAPP_URL}
       - DEV_MODE=${DEV_MODE:-False}
     depends_on:

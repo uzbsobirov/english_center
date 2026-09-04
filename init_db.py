@@ -21,7 +21,7 @@ from backend.models import (
     User, RoleEnum, LanguageEnum, LevelEnum, CourseTypeEnum,
     Course, Group, Test, TestSourceEnum, CenterSetting
 )
-from data.config import ADMINS
+from data.config import ADMINS, DEV_MODE
 import backend.models  # Modellar ro'yxatdan o'tishi uchun
 
 
@@ -400,6 +400,20 @@ async def seed_admins(session):
             if not user.referral_code:
                 user.referral_code = f"ADMIN{aid % 10000}"
             print(f"  [+] Admin mavjud, roli yangilandi (ID: {aid})")
+
+    if DEV_MODE:
+        dev_u = await session.get(User, 999999999)
+        if not dev_u:
+            dev_u = User(
+                id=999999999,
+                full_name="Dev Tester",
+                username="dev_test_user",
+                role=RoleEnum.admin,
+                language=LanguageEnum.uz,
+                referral_code="DEVTEST999"
+            )
+            session.add(dev_u)
+            print("  [+] Dev Tester foydalanuvchisi yaratildi (ID: 999999999)")
 
 
 async def seed_courses_and_groups(session):
