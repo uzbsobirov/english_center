@@ -229,6 +229,20 @@ async def run_master_test():
     # A) Naqd to'lov
     student_cash_id = 7100000086
     async with async_session() as session:
+        # student_cash_id hali User jadvalida yo'q bo'lishi mumkin (masalan, birinchi marta
+        # ishlatilayotgan fake ID) — Payment yaratishdan oldin uni tekshirib, bo'lmasa yaratamiz.
+        cash_user = await session.get(User, student_cash_id)
+        if not cash_user:
+            cash_user = User(
+                id=student_cash_id,
+                full_name=f"Test Student {student_cash_id}",
+                role=RoleEnum.student,
+                language=LanguageEnum.uz,
+                referral_code=f"STU{student_cash_id % 100000}",
+            )
+            session.add(cash_user)
+            await session.commit()
+
         pay_cash = Payment(
             student_id=student_cash_id,
             group_id=new_group_id,
@@ -248,6 +262,19 @@ async def run_master_test():
     student_online_id = 7100000087
     trans_id = f"payme_tx_{tag}_{int(time.time())}"
     async with async_session() as session:
+        # student_online_id ham hali User jadvalida yo'q bo'lishi mumkin — avval tekshiramiz.
+        online_user = await session.get(User, student_online_id)
+        if not online_user:
+            online_user = User(
+                id=student_online_id,
+                full_name=f"Test Student {student_online_id}",
+                role=RoleEnum.student,
+                language=LanguageEnum.uz,
+                referral_code=f"STU{student_online_id % 100000}",
+            )
+            session.add(online_user)
+            await session.commit()
+
         pay_online = Payment(
             student_id=student_online_id,
             group_id=new_group_id,
@@ -313,8 +340,17 @@ async def run_master_test():
         # Yangi do'st qo'shamiz
         friend_id = 7100000088
         friend = await session.get(User, friend_id)
-        if friend:
-            friend.referred_by = student_cash_id
+        if not friend:
+            friend = User(
+                id=friend_id,
+                full_name=f"Test Friend {friend_id}",
+                role=RoleEnum.student,
+                language=LanguageEnum.uz,
+                referral_code=f"STU{friend_id % 100000}",
+            )
+            session.add(friend)
+            await session.flush()
+        friend.referred_by = student_cash_id
 
         bonus = ReferralBonus(
             user_id=student_cash_id,
