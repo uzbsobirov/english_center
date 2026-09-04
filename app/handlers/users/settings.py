@@ -15,7 +15,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 )
 from aiogram_i18n import I18nContext
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 
 from backend.database import async_session
 from backend.models import (
@@ -147,7 +147,7 @@ async def process_phone_update(message: Message, state: FSMContext, i18n: I18nCo
             or getattr(message, "forward_from", None)
             or getattr(message, "forward_from_chat", None)
         )
-        if is_forwarded or message.contact.user_id != message.from_user.id:
+        if is_forwarded or (message.contact.user_id and message.contact.user_id != message.from_user.id):
             await message.answer(
                 "⚠️ <b>Faqat o'zingizning raqamingizni yuborishingiz mumkin!</b>\n"
                 "Boshqa shaxsning yoki forward qilingan kontaktlar qabul qilinmaydi. Iltimos, pastdagi «📱 Raqamni yuborish» tugmasini bosing:"
@@ -163,6 +163,15 @@ async def process_phone_update(message: Message, state: FSMContext, i18n: I18nCo
     if not new_phone:
         await message.answer("⚠️ Noto'g'ri telefon raqami. Iltimos, pastdagi «📱 Raqamni yuborish» tugmasini bosing yoki +998901234567 formatida yozing:")
         return
+
+    # Telefon raqamini xalqaro formatga keltirish (+998...)
+    if not new_phone.startswith("+"):
+        if len(new_phone) == 12 and new_phone.startswith("998"):
+            new_phone = "+" + new_phone
+        elif len(new_phone) == 9:
+            new_phone = "+998" + new_phone
+        else:
+            new_phone = "+" + new_phone
 
     async with async_session() as session:
         await session.execute(
@@ -182,6 +191,66 @@ async def process_phone_update(message: Message, state: FSMContext, i18n: I18nCo
     )
 
 
+@router.callback_query(F.data == "settings:close")
+async def settings_close_callback(callback: CallbackQuery):
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data == "settings:back_to_menu")
+async def settings_back_to_menu_callback(callback: CallbackQuery, i18n: I18nContext):
+    user_id = callback.from_user.id
+    lang = getattr(i18n, "locale", "uz") or "uz"
+
+    async with async_session() as session:
+        user = await session.get(User, user_id)
+        enr_res = await session.execute(
+            select(Enrollment, Group, Course)
+            .join(Group, Enrollment.group_id == Group.id)
+            .join(Course, Group.course_id == Course.id)
+            .where(Enrollment.student_id == user_id, Enrollment.is_active == True)
+        )
+        enr_row = enr_res.first()
+
+    group_name = enr_row[1].name if enr_row else "Guruhsiz"
+    phone_display = (user.phone if user and user.phone else "Kiritilmagan")
+
+    lang_labels = {"uz": "🇺🇿 O'zbekcha", "ru": "🇷🇺 Русский", "en": "🇬🇧 English"}
+    current_lang_label = lang_labels.get(lang, "🇺🇿 O'zbekcha")
+
+    text = (
+        f"⚙️ <b>Sozlamalar va Boshqaruv</b>\n\n"
+        f"👤 <b>Foydalanuvchi:</b> {callback.from_user.full_name}\n"
+        f"📱 <b>Telefon:</b> <code>{phone_display}</code>\n"
+        f"🌐 <b>Joriy til:</b> {current_lang_label}\n"
+        f"👥 <b>Faol guruh:</b> {group_name}\n\n"
+        f"Quyidagi amallardan birini tanlang:"
+    )
+
+    buttons = [
+        [
+            InlineKeyboardButton(text="🌐 Tilni o'zgartirish", callback_data="settings:lang"),
+            InlineKeyboardButton(text="📱 Telefonni yangilash", callback_data="settings:phone"),
+        ]
+    ]
+
+    if enr_row:
+        buttons.append([
+            InlineKeyboardButton(text="👥 Guruhni o'zgartirish", callback_data="settings:change_group"),
+            InlineKeyboardButton(text="💰 Qaytarish (Refund)", callback_data="settings:refund"),
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="settings:close")
+    ])
+
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
+
+
 # --- 👥 GURUHNI O'ZGARTIRISH SO'ROVI (TZ 6.3 & 7.6) ---
 
 @router.callback_query(F.data == "settings:change_group")
@@ -195,36 +264,80 @@ async def start_group_change(callback: CallbackQuery, state: FSMContext):
             .join(Course, Group.course_id == Course.id)
             .where(Enrollment.student_id == user_id, Enrollment.is_active == True)
         )
-        enr_row = enr_res.first()
+        enr_rows = enr_res.all()
 
-        if not enr_row:
+        if not enr_rows:
             await callback.answer("Siz hozirda faol guruhda emassiz.", show_alert=True)
             return
 
-        current_enr, current_group, current_course = enr_row
+        # Agar o'quvchi bir nechta guruhda bo'lsa, qaysi birini almashtirayotganini tanlaydi
+        if len(enr_rows) > 1:
+            buttons = []
+            for enr, grp, crs in enr_rows:
+                buttons.append([
+                    InlineKeyboardButton(
+                        text=f"👥 {grp.name} ({float(crs.price):,.0f} so'm)",
+                        callback_data=f"settings:from_grp:{grp.id}",
+                    )
+                ])
+            buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="settings:back_to_menu")])
+            await callback.message.edit_text(
+                "👥 <b>Qaysi guruhingizni almashtirmoqchisiz?</b>\n\n"
+                "Iltimos, almashtirmoqchi bo'lgan amaldagi guruhingizni tanlang:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+            )
+            await callback.answer()
+            return
 
-        # Boshqa faol guruhlarni topamiz (bir xil kurs/daraja bo'yicha)
+        current_enr, current_group, current_course = enr_rows[0]
+        await _show_target_groups_menu(callback, current_group, current_course)
+
+
+@router.callback_query(F.data.startswith("settings:from_grp:"))
+async def from_group_selected(callback: CallbackQuery, state: FSMContext):
+    grp_id = int(callback.data.split(":")[2])
+    async with async_session() as session:
+        cur_grp = await session.get(Group, grp_id)
+        cur_course = await session.get(Course, cur_grp.course_id) if cur_grp else None
+    if not cur_grp or not cur_course:
+        await callback.answer("Guruh topilmadi", show_alert=True)
+        return
+    await _show_target_groups_menu(callback, cur_grp, cur_course)
+
+
+async def _show_target_groups_menu(callback: CallbackQuery, current_group: Group, current_course: Course):
+    async with async_session() as session:
+        # Barcha boshqa faol guruhlarni topamiz (arzon, teng yoki qimmatroq kurslar)
         other_groups_res = await session.execute(
-            select(Group)
+            select(Group, Course)
+            .join(Course, Group.course_id == Course.id)
             .where(
-                Group.course_id == current_course.id,
                 Group.id != current_group.id,
                 Group.is_active == True,
-            )
+            ).order_by(Course.price.asc())
         )
-        other_groups = other_groups_res.scalars().all()
+        other_groups = other_groups_res.all()
 
     if not other_groups:
         await callback.answer(
-            "Hozirda ushbu kurs bo'yicha boshqa bo'sh guruhlar mavjud emas.", show_alert=True
+            "Hozirda boshqa bo'sh guruhlar mavjud emas.", show_alert=True
         )
         return
 
     buttons = []
-    for g in other_groups:
+    for g, c in other_groups:
+        c_title = c.title.get("uz", "Kurs") if isinstance(c.title, dict) else str(c.title)
+        diff_price = float(c.price) - float(current_course.price)
+        if diff_price > 0:
+            price_tag = f"{float(c.price):,.0f} so'm (+{diff_price:,.0f} farq)"
+        elif diff_price < 0:
+            price_tag = f"{float(c.price):,.0f} so'm (-{abs(diff_price):,.0f} farq)"
+        else:
+            price_tag = f"{float(c.price):,.0f} so'm (teng narx)"
+
         buttons.append([
             InlineKeyboardButton(
-                text=f"📌 {g.name} | Xona: {g.room or '101'}",
+                text=f"📌 {g.name} | {price_tag}",
                 callback_data=f"req_grp_target:{g.id}:{current_group.id}",
             )
         ])
@@ -232,8 +345,9 @@ async def start_group_change(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         f"👥 <b>Guruhni O'zgartirish So'rovi</b>\n\n"
-        f"Joriy guruhingiz: <b>{current_group.name}</b>\n"
-        f"Qaysi yangi guruhga o'tmoqchisiz? Tanlang:",
+        f"⬅️ Amaldagi guruhingiz: <b>{current_group.name}</b> ({float(current_course.price):,.0f} so'm)\n\n"
+        f"Qaysi yangi guruhga o'tmoqchisiz? Tanlang:\n"
+        f"<i>(Qolgan pullaringiz avtomatik qayta hisoblab beriladi)</i>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
     await callback.answer()
@@ -256,18 +370,92 @@ async def target_group_selected(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split(":")
     target_group_id = int(parts[1])
     current_group_id = int(parts[2])
+    student_id = callback.from_user.id
 
-    await state.update_data(target_group_id=target_group_id, current_group_id=current_group_id)
+    async with async_session() as session:
+        cur_grp = await session.get(Group, current_group_id)
+        tar_grp = await session.get(Group, target_group_id)
+        cur_course = await session.get(Course, cur_grp.course_id) if cur_grp else None
+        tar_course = await session.get(Course, tar_grp.course_id) if tar_grp else None
+
+        # Guruh bo'yicha barcha tasdiqlangan to'lovlar (oldindan to'langan barcha oylar)
+        paid_res = await session.execute(
+            select(Payment).where(
+                Payment.student_id == student_id,
+                Payment.group_id == current_group_id,
+                Payment.status == PaymentStatusEnum.confirmed,
+            ).order_by(Payment.created_at.asc())
+        )
+        confirmed_pays = paid_res.scalars().all()
+
+        # Davomat
+        att_res = await session.execute(
+            select(func.count(Attendance.id)).where(
+                Attendance.student_id == student_id,
+                Attendance.group_id == current_group_id,
+                Attendance.status.in_([AttendanceStatusEnum.present, AttendanceStatusEnum.late])
+            )
+        )
+        attended_count = att_res.scalar() or 0
+
+    cur_course_price = float(cur_course.price) if cur_course else 450000.0
+    tar_price = float(tar_course.price) if tar_course else cur_course_price
+
+    total_paid = sum(float(p.amount) for p in confirmed_pays)
+    if total_paid == 0:
+        total_paid = cur_course_price
+
+    # 1 oyda 12 ta dars hisobidan o'tilgan darslar narxi
+    cur_price_per_lesson = cur_course_price / 12.0
+    used_amount = attended_count * cur_price_per_lesson
+    remaining_balance = max(0.0, total_paid - used_amount)
+
+    tar_price_per_lesson = tar_price / 12.0
+    remaining_lessons = max(0, 12 - (attended_count % 12 if attended_count > 0 else 0))
+    tar_needed = remaining_lessons * tar_price_per_lesson
+
+    # balance_diff: musbat bo'lsa doplata, manfiy bo'lsa ortiqcha depozit
+    balance_diff = round(tar_needed - remaining_balance, -2)
+
+    await state.update_data(
+        target_group_id=target_group_id,
+        current_group_id=current_group_id,
+        balance_difference=balance_diff,
+        attended_count=attended_count,
+        remaining_balance=remaining_balance,
+        cur_price=cur_course_price,
+        tar_price=tar_price,
+    )
     await state.set_state(SettingsFSM.group_change_reason)
 
     cancel_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="settings:cancel_group_change")]
     ])
 
+    if balance_diff > 0:
+        diff_text = (
+            f"⚖️ <b>Moliyaviy hisob (Qo'shimcha to'lov):</b> <b>+{balance_diff:,.0f} so'm</b>\n"
+            f"<i>(Yangi guruh qimmatroq bo'lgani uchun, o'tgach qolgan darslarga farqi to'lanadi).</i>"
+        )
+    elif balance_diff < 0:
+        diff_text = (
+            f"⚖️ <b>Moliyaviy hisob (Depozit):</b> <b>+{abs(balance_diff):,.0f} so'm</b>\n"
+            f"<i>(Sizda ortiqcha to'langan mablag' bor! Yangi guruh uchun to'lov to'liq yetadi va "
+            f"<b>+{abs(balance_diff):,.0f} so'm</b> ortiqcha depozit keyingi oy to'lovingizga saqlanadi).</i>"
+        )
+    else:
+        diff_text = f"⚖️ <b>Moliyaviy hisob:</b> <b>0 so'm</b> (Eski guruhdagi qoldiq yangi guruhga to'liq yetadi)."
+
     await callback.message.edit_text(
-        "✍️ <b>Guruhni o'zgartirish sababini yozing:</b>\n"
-        "<i>(Masalan: Dars vaqti to'g'ri kelmay qoldi yoki boshqa vaqtga o'tishim kerak)</i>\n\n"
-        "<i>Bekor qilish uchun pastdagi tugmani bosing:</i>",
+        f"👥 <b>Guruhni O'zgartirish Hisob-kitobi</b>\n\n"
+        f"⬅️ <b>Joriy guruh:</b> {cur_grp.name if cur_grp else ''} ({cur_course_price:,.0f} so'm)\n"
+        f"➡️ <b>Yangi guruh:</b> {tar_grp.name if tar_grp else ''} ({tar_price:,.0f} so'm)\n"
+        f"💳 <b>Jami to'langan mablag':</b> {total_paid:,.0f} so'm ({len(confirmed_pays)} ta to'lov)\n"
+        f"📊 <b>Qatnashilgan darslar:</b> {attended_count} ta dars\n"
+        f"💰 <b>Eski guruhdagi sof qoldiq:</b> {remaining_balance:,.0f} so'm\n"
+        f"{diff_text}\n\n"
+        f"✍️ <b>Guruhni o'zgartirish sababini yozing:</b>\n"
+        f"<i>(Bekor qilish uchun pastdagi tugmani bosing)</i>",
         reply_markup=cancel_kb,
     )
     await callback.answer()
@@ -345,6 +533,9 @@ async def submit_group_change_reason(message: Message, state: FSMContext, i18n: 
     data = await state.get_data()
     target_group_id = data.get("target_group_id")
     current_group_id = data.get("current_group_id")
+    balance_diff = data.get("balance_difference", 0.0)
+    attended_count = data.get("attended_count", 0)
+    remaining_balance = data.get("remaining_balance", 0.0)
     await state.clear()
 
     async with async_session() as session:
@@ -355,6 +546,7 @@ async def submit_group_change_reason(message: Message, state: FSMContext, i18n: 
             student_id=message.from_user.id,
             current_group_id=current_group_id,
             target_group_id=target_group_id,
+            balance_difference=balance_diff,
             reason=reason,
             status="pending",
         )
@@ -378,11 +570,21 @@ async def submit_group_change_reason(message: Message, state: FSMContext, i18n: 
         ]
     ])
 
+    if balance_diff > 0:
+        diff_summary = f"Doplata talab qilinadi (+{balance_diff:,.0f} so'm)"
+    elif balance_diff < 0:
+        diff_summary = f"Depozit qoldiq (+{abs(balance_diff):,.0f} so'm keyingi oyga)"
+    else:
+        diff_summary = "Farq yo'q (0 so'm)"
+
     admin_text = (
         f"👥 <b>Guruhni O'zgartirish So'rovi #{req.id}</b>\n\n"
         f"👤 <b>O'quvchi:</b> {message.from_user.full_name} (@{message.from_user.username or 'yoq'})\n"
         f"⬅️ <b>Eski guruh:</b> {cur_grp.name if cur_grp else current_group_id}\n"
         f"➡️ <b>Yangi guruh:</b> {tar_grp.name if tar_grp else target_group_id}\n"
+        f"📊 <b>Qatnashgan darslar:</b> {attended_count} ta\n"
+        f"💰 <b>Eski guruhdagi qoldiq:</b> {remaining_balance:,.0f} so'm\n"
+        f"⚖️ <b>Moliyaviy hisob:</b> <b>{diff_summary}</b>\n"
         f"📝 <b>Sabab:</b> <i>{reason}</i>"
     )
 

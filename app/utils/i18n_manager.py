@@ -29,6 +29,10 @@ class UserManager(BaseManager):
             async with async_session() as session:
                 user = await session.get(User, event_from_user.id)
                 if user is not None:
+                    # Agar bazada username 'admin' bo'lib qolgan bo'lsa yoki telegramdagi bilan mos kelmasa
+                    if user.username == "admin" or (event_from_user.username and user.username != event_from_user.username):
+                        user.username = event_from_user.username
+                        await session.commit()
                     return user.language.value
 
         # 3) Standart til

@@ -7,19 +7,20 @@ Oqim:
 4. Naqd: O'qituvchiga/adminlarga atomik tasdiqlash tugmali xabar boradi
 5. Tasdiqlangach: Payment confirmed -> Enrollment yaratiladi -> Referrerga bonus -> O'quvchiga tabrik
 """
-from datetime import datetime
+from datetime import datetime, timedelta
+import calendar
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram_i18n import I18nContext
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 
 from backend.database import async_session
 from backend.models import (
     Group, Course, Payment, PaymentMethodEnum, PaymentStatusEnum,
     Enrollment, EnrollmentStatusEnum, User, ReferralBonus,
-    FreeTrialRequest, TestResult, Test
+    FreeTrialRequest, TestResult, Test, Attendance, AttendanceStatusEnum
 )
 from backend.services.gamification import award_badge_if_eligible
 
@@ -28,6 +29,36 @@ from backend.utils.formatters import format_schedule
 router = Router()
 
 _format_schedule = format_schedule
+
+
+def add_calendar_months(dt: datetime, months: int = 1) -> datetime:
+    """Sana ustiga oylarni kalendar bo'yicha aniq qo'shish."""
+    month = dt.month - 1 + months
+    year = dt.year + month // 12
+    month = month % 12 + 1
+    max_days = calendar.monthrange(year, month)[1]
+    return dt.replace(year=year, month=month, day=min(dt.day, max_days))
+
+
+def calculate_student_group_coverage(payments: list[Payment], base_course_price: float = 0.0) -> tuple[datetime | None, int]:
+    """
+    Hisoblangan to'lovlar zanjiri (chaining) orqali to'lov amal qilish muddati (coverage_end)
+    va to'langan oylar sonini aniqlaydi.
+    """
+    coverage_end = None
+    total_months_paid = 0
+
+    sorted_pays = sorted(payments, key=lambda p: p.created_at or datetime.utcnow())
+    for p in sorted_pays:
+        pay_time = p.created_at or datetime.utcnow()
+        equiv_months = max(1, int(round((float(p.amount) + float(p.discount_amount or 0.0)) / max(float(base_course_price), 1.0))))
+        if coverage_end is None or pay_time > coverage_end:
+            coverage_end = add_calendar_months(pay_time, equiv_months)
+        else:
+            coverage_end = add_calendar_months(coverage_end, equiv_months)
+        total_months_paid += equiv_months
+
+    return coverage_end, total_months_paid
 
 PAY_BUTTON_TEXTS = {
     "💳 To'lov", "💳 Оплата", "💳 Payment",
@@ -105,26 +136,135 @@ async def start_payment(event: Message | CallbackQuery, i18n: I18nContext, state
             sched_str = _format_schedule(group.schedule, lang)
             course_title = course.title.get(lang, course.title.get("uz", "Kurs")) if isinstance(course.title, dict) else str(course.title)
 
-            buttons = [
-                [InlineKeyboardButton(
+            # 1. Kutilayotgan to'lov bormi?
+            pending_pay = (await session.execute(
+                select(Payment).where(
+                    Payment.student_id == student_id,
+                    Payment.group_id == group.id,
+                    Payment.status == PaymentStatusEnum.pending
+                ).order_by(Payment.created_at.desc()).limit(1)
+            )).scalars().first()
+
+            # 2. Guruh bo'yicha barcha tasdiqlangan to'lovlar va amal qilish muddati (cumulative coverage)
+            confirmed_pays = (await session.execute(
+                select(Payment).where(
+                    Payment.student_id == student_id,
+                    Payment.group_id == group.id,
+                    Payment.status == PaymentStatusEnum.confirmed
+                ).order_by(Payment.created_at.asc())
+            )).scalars().all()
+
+            last_confirmed_pay = confirmed_pays[-1] if confirmed_pays else None
+            coverage_end, total_months_paid = calculate_student_group_coverage(confirmed_pays, float(course.price))
+
+            # 3. Davomat bo'yicha qatnashgan darslar soni
+            attended_lessons = (await session.execute(
+                select(func.count(Attendance.id)).where(
+                    Attendance.student_id == student_id,
+                    Attendance.group_id == group.id,
+                    Attendance.status.in_([AttendanceStatusEnum.present, AttendanceStatusEnum.late])
+                )
+            )).scalar() or 0
+            total_lessons_tracked = (await session.execute(
+                select(func.count(Attendance.id)).where(
+                    Attendance.student_id == student_id,
+                    Attendance.group_id == group.id,
+                )
+            )).scalar() or 0
+
+            # 4. To'lov holatini hisoblash
+            now = datetime.utcnow()
+            is_paid_active = bool(coverage_end and coverage_end > now)
+            last_pay_info = None
+            if last_confirmed_pay and coverage_end:
+                method_name = "Naqd" if last_confirmed_pay.method == PaymentMethodEnum.cash else "Payme / Online"
+                last_pay_info = {
+                    "date": last_confirmed_pay.created_at.strftime("%d.%m.%Y"),
+                    "amount": float(last_confirmed_pay.amount),
+                    "method": method_name,
+                    "due_date": coverage_end.strftime("%d.%m.%Y"),
+                }
+
+            buttons = []
+            if pending_pay:
+                # Kutilayotgan to'lov bor — ortiqcha to'lov qilishning oldi olinadi
+                card_text = (
+                    f"💳 <b>Kurs To'lovi Holati</b>\n\n"
+                    f"🎯 <b>Guruh:</b> <b>{group.name}</b>\n"
+                    f"📚 <b>Kurs:</b> {course_title} ({course.level.value})\n"
+                    f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
+                    f"🗓 <b>Dars jadvali:</b> {sched_str}\n\n"
+                    f"⏳ <b>To'lov tasdiqlanishi kutilmoqda:</b>\n"
+                    f"Siz <b>{float(pending_pay.amount):,.0f} so'm</b> to'lov yuborgansiz ({pending_pay.created_at.strftime('%d.%m.%Y %H:%M')}).\n"
+                    f"ℹ️ <i>Administrator yoki o'qituvchi tasdiqlashi kutilmoqda. Qaytadan to'lov qilish shart emas.</i>\n\n"
+                    f"📊 <b>Qatnashilgan darslar:</b> <b>{attended_lessons} ta dars</b>"
+                )
+                buttons.append([InlineKeyboardButton(text="🧾 To'lovlar tarixi", callback_data="pay_history")])
+                buttons.append([InlineKeyboardButton(text="🔄 Boshqa guruhni tanlash", callback_data="pay_show_all_groups")])
+            elif is_paid_active and last_pay_info and coverage_end:
+                # To'lov faol
+                one_month_from_now = add_calendar_months(now, 1)
+                is_prepaid_future = coverage_end > one_month_from_now or total_months_paid >= 2
+
+                if is_prepaid_future:
+                    status_title = f"Keyingi oy uchun ham to'langan! ({total_months_paid} oylik to'lov)"
+                    period_note = (
+                        f"🎉 <i>Siz <b>{coverage_end.strftime('%d.%m.%Y')} gacha</b> (keyingi oy uchun ham) to'lov qilgansiz. "
+                        f"Darslarda bemalol qatnashishingiz mumkin!</i>"
+                    )
+                    pay_btn_text = f"💳 Yana oldindan to'lash ({coverage_end.strftime('%d.%m.%Y')} dan keyin)"
+                else:
+                    status_title = "Joriy oy uchun to'langan!"
+                    period_note = (
+                        f"ℹ️ <i>Siz joriy oy uchun to'lov qilgansiz. Agar istasangiz, keyingi oy "
+                        f"({coverage_end.strftime('%d.%m.%Y')} dan boshlab) uchun oldindan to'lov qilishingiz mumkin:</i>"
+                    )
+                    pay_btn_text = "💳 Keyingi oy uchun oldindan to'lash"
+
+                card_text = (
+                    f"💳 <b>Kurs To'lovi Holati</b>\n\n"
+                    f"🎯 <b>Guruh:</b> <b>{group.name}</b>\n"
+                    f"📚 <b>Kurs:</b> {course_title} ({course.level.value})\n"
+                    f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
+                    f"🗓 <b>Dars jadvali:</b> {sched_str}\n\n"
+                    f"✅ <b>To'lov holati:</b> <b>{status_title}</b>\n"
+                    f"▫️ <b>Oxirgi to'lov:</b> {last_pay_info['date']} ({last_pay_info['amount']:,.0f} so'm, {last_pay_info['method']})\n"
+                    f"▫️ <b>To'langan muddat:</b> <b>{coverage_end.strftime('%d.%m.%Y')} gacha</b>\n"
+                    f"▫️ <b>Keyingi to'lov sanasi:</b> <b>{coverage_end.strftime('%d.%m.%Y')}</b>\n"
+                    f"▫️ <b>Qatnashilgan darslar:</b> <b>{attended_lessons} ta dars</b> (jami o'tilgan: {total_lessons_tracked})\n\n"
+                    f"{period_note}"
+                )
+                buttons.append([InlineKeyboardButton(
+                    text=pay_btn_text,
+                    callback_data=f"pay_group:{group.id}",
+                )])
+                buttons.append([InlineKeyboardButton(text="🧾 To'lovlar tarixi", callback_data="pay_history")])
+                buttons.append([InlineKeyboardButton(text="🔄 Boshqa guruhni tanlash", callback_data="pay_show_all_groups")])
+            else:
+                # To'lov qilinmagan yoki muddati o'tgan
+                history_hint = ""
+                if last_pay_info and coverage_end:
+                    history_hint = f"⚠️ <i>Oldingi to'lov muddati {coverage_end.strftime('%d.%m.%Y')} da tugagan ({last_pay_info['amount']:,.0f} so'm).</i>\n"
+                attendance_hint = f"📊 <b>Qatnashilgan darslar:</b> {attended_lessons} ta dars.\n\n" if attended_lessons > 0 else "\n"
+
+                card_text = (
+                    f"💳 <b>Kurs To'lovi</b>\n\n"
+                    f"🎯 <b>Siz yozilgan guruh:</b> <b>{group.name}</b>\n"
+                    f"📚 <b>Kurs:</b> {course_title} ({course.level.value})\n"
+                    f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
+                    f"🗓 <b>Dars jadvali:</b> {sched_str}\n"
+                    f"💰 <b>Oylik to'lov:</b> <b>{float(course.price):,.0f} so'm</b>\n\n"
+                    f"{history_hint}{attendance_hint}"
+                    f"<i>To'lovni amalga oshirish uchun quyidagi tugmani bosing:</i>"
+                )
+                buttons.append([InlineKeyboardButton(
                     text=f"💳 {group.name} uchun to'lov qilish",
                     callback_data=f"pay_group:{group.id}",
-                )],
-                [InlineKeyboardButton(
-                    text="🔄 Boshqa guruhni tanlash",
-                    callback_data="pay_show_all_groups",
-                )],
-            ]
+                )])
+                if last_confirmed_pay:
+                    buttons.append([InlineKeyboardButton(text="🧾 To'lovlar tarixi", callback_data="pay_history")])
+                buttons.append([InlineKeyboardButton(text="🔄 Boshqa guruhni tanlash", callback_data="pay_show_all_groups")])
 
-            card_text = (
-                f"💳 <b>Kurs To'lovi</b>\n\n"
-                f"🎯 <b>Siz yozilgan guruh:</b> <b>{group.name}</b>\n"
-                f"📚 <b>Kurs:</b> {course_title} ({course.level.value})\n"
-                f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
-                f"🗓 <b>Dars jadvali:</b> {sched_str}\n"
-                f"💰 <b>Oylik to'lov:</b> <b>{float(course.price):,.0f} so'm</b>\n\n"
-                f"<i>To'lovni amalga oshirish uchun quyidagi tugmani bosing:</i>"
-            )
             if isinstance(event, CallbackQuery):
                 try:
                     await event.message.edit_text(card_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
@@ -188,6 +328,51 @@ async def pay_show_all_groups_callback(callback: CallbackQuery, i18n: I18nContex
     await _show_all_groups_menu(callback, lang)
 
 
+@router.callback_query(F.data == "pay_history")
+async def show_payment_history(callback: CallbackQuery, i18n: I18nContext):
+    student_id = callback.from_user.id
+    async with async_session() as session:
+        payments_res = await session.execute(
+            select(Payment, Group)
+            .outerjoin(Group, Payment.group_id == Group.id)
+            .where(Payment.student_id == student_id)
+            .order_by(Payment.created_at.desc())
+            .limit(10)
+        )
+        rows = payments_res.all()
+
+    if not rows:
+        await callback.answer("Sizda hali to'lovlar tarixi mavjud emas.", show_alert=True)
+        return
+
+    text = "🧾 <b>Sizning To'lovlar Tarixingiz:</b>\n\n"
+    for pay, grp in rows:
+        grp_name = grp.name if grp else "Noma'lum guruh"
+        method_str = "💵 Naqd" if pay.method == PaymentMethodEnum.cash else "🌐 Payme"
+        status_str = "✅ Tasdiqlangan" if pay.status == PaymentStatusEnum.confirmed else ("⏳ Kutilmoqda" if pay.status == PaymentStatusEnum.pending else "❌ Bekor qilingan")
+        dt_str = pay.created_at.strftime("%d.%m.%Y %H:%M")
+        text += (
+            f"🔹 <b>{grp_name}</b>\n"
+            f"   💰 {float(pay.amount):,.0f} so'm | {method_str}\n"
+            f"   📅 {dt_str} | {status_str}\n\n"
+        )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="start_payment_flow")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "pay_cancel")
+async def pay_cancel_callback(callback: CallbackQuery):
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("pay_group:"))
 async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, state: FSMContext):
     lang = getattr(i18n, "locale", "uz") or "uz"
@@ -216,6 +401,52 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         total_discount_pct = sum(float(b.bonus_percent) for b in bonuses)
         total_discount_pct = min(total_discount_pct, 100.0)
 
+        # Guruh bo'yicha to'langan muddatni hisoblash
+        confirmed_res = await session.execute(
+            select(Payment).where(
+                Payment.student_id == student_id,
+                Payment.group_id == group_id,
+                Payment.status == PaymentStatusEnum.confirmed
+            )
+        )
+        group_pays = confirmed_res.scalars().all()
+        cov_end, _ = calculate_student_group_coverage(group_pays, float(course.price))
+        now = datetime.utcnow()
+        if cov_end and cov_end > now:
+            p_from = cov_end
+            p_to = add_calendar_months(cov_end, 1)
+            period_uz = f"📅 <b>Qoplanadigan to'lov davri:</b> {p_from.strftime('%d.%m.%Y')} – {p_to.strftime('%d.%m.%Y')} (Keyingi oy uchun)\n"
+            period_ru = f"📅 <b>Оплачиваемый период:</b> {p_from.strftime('%d.%m.%Y')} – {p_to.strftime('%d.%m.%Y')} (Следующий месяц)\n"
+            period_en = f"📅 <b>Covered period:</b> {p_from.strftime('%d.%m.%Y')} – {p_to.strftime('%d.%m.%Y')} (Next month)\n"
+        else:
+            p_from = now
+            p_to = add_calendar_months(now, 1)
+            period_uz = f"📅 <b>Qoplanadigan to'lov davri:</b> {p_from.strftime('%d.%m.%Y')} – {p_to.strftime('%d.%m.%Y')} (1 oylik to'lov)\n"
+            period_ru = f"📅 <b>Оплачиваемый период:</b> {p_from.strftime('%d.%m.%Y')} – {p_to.strftime('%d.%m.%Y')} (Оплата за 1 месяц)\n"
+            period_en = f"📅 <b>Covered period:</b> {p_from.strftime('%d.%m.%Y')} – {p_to.strftime('%d.%m.%Y')} (1-month payment)\n"
+
+        # O'quvchining boshqa faol guruhlari bormi?
+        other_enr_res = await session.execute(
+            select(Enrollment, Group, Course)
+            .join(Group, Enrollment.group_id == Group.id)
+            .join(Course, Group.course_id == Course.id)
+            .where(
+                Enrollment.student_id == student_id,
+                Enrollment.is_active == True,
+                Enrollment.group_id != group_id,
+            )
+        )
+        other_enrs = other_enr_res.all()
+
+        current_enr_res = await session.execute(
+            select(Enrollment).where(
+                Enrollment.student_id == student_id,
+                Enrollment.group_id == group_id,
+                Enrollment.is_active == True,
+            )
+        )
+        is_already_in_this_group = current_enr_res.scalar_one_or_none() is not None
+
     base_price = float(course.price)
     discount_amount = base_price * (total_discount_pct / 100.0)
     final_price = max(base_price - discount_amount, 0.0)
@@ -230,10 +461,31 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         discount_pct=total_discount_pct,
     )
 
+    switch_hint_uz = ""
+    switch_hint_ru = ""
+    switch_hint_en = ""
+    if other_enrs and not is_already_in_this_group:
+        cur_other_grp = other_enrs[0][1]
+        switch_hint_uz = (
+            f"💡 <i>Siz hozirda <b>{cur_other_grp.name}</b> guruhida faol o'quvchisiz. "
+            f"Agar ushbu yangi guruhga butunlay o'tmoqchi bo'lsangiz, «Guruhni almashtirish» tugmasini bosing — "
+            f"avvalgi to'lovingiz yangi guruhga o'tkazilib, faqat qolgan farqi (doplata) hisoblanadi!</i>\n\n"
+        )
+        switch_hint_ru = (
+            f"💡 <i>Вы сейчас учитесь в группе <b>{cur_other_grp.name}</b>. "
+            f"Если хотите перевестись, нажмите «Сменить группу» — остаток оплаты перейдет в новую группу!</i>\n\n"
+        )
+        switch_hint_en = (
+            f"💡 <i>You are currently enrolled in <b>{cur_other_grp.name}</b>. "
+            f"If you want to transfer, click «Switch Group» to transfer your remaining balance!</i>\n\n"
+        )
+
     if lang == "uz":
         text = (
             f"📚 <b>Guruh:</b> {group.name}\n"
             f"💵 <b>Asl narx:</b> {base_price:,.0f} so'm\n"
+            f"{period_uz}\n"
+            f"{switch_hint_uz}"
         )
         if total_discount_pct > 0:
             text += f"🎁 <b>Referal chegirma:</b> -{total_discount_pct:.0f}% (-{discount_amount:,.0f} so'm)\n"
@@ -245,6 +497,8 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         text = (
             f"📚 <b>Группа:</b> {group.name}\n"
             f"💵 <b>Исходная цена:</b> {base_price:,.0f} сум\n"
+            f"{period_ru}\n"
+            f"{switch_hint_ru}"
         )
         if total_discount_pct > 0:
             text += f"🎁 <b>Реферальная скидка:</b> -{total_discount_pct:.0f}% (-{discount_amount:,.0f} сум)\n"
@@ -256,6 +510,8 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         text = (
             f"📚 <b>Group:</b> {group.name}\n"
             f"💵 <b>Standard price:</b> {base_price:,.0f} UZS\n"
+            f"{period_en}\n"
+            f"{switch_hint_en}"
         )
         if total_discount_pct > 0:
             text += f"🎁 <b>Referral discount:</b> -{total_discount_pct:.0f}% (-{discount_amount:,.0f} UZS)\n"
@@ -264,12 +520,54 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         online_btn = "🌐 Online Payment (Payme / Click / Uzum)"
         back_btn = "◀️ Select another group"
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=cash_btn, callback_data=f"pay_method:cash:{group_id}")],
-        [InlineKeyboardButton(text=online_btn, callback_data=f"pay_method:online:{group_id}")],
-        [InlineKeyboardButton(text=back_btn, callback_data="pay_back_groups")],
-    ])
+    kb_rows = []
+    if other_enrs and not is_already_in_this_group:
+        cur_other_grp = other_enrs[0][1]
+        kb_rows.append([
+            InlineKeyboardButton(
+                text="🔄 Guruhni almashtirish (Balansni ko'chirish)",
+                callback_data=f"req_grp_target:{group_id}:{cur_other_grp.id}",
+            )
+        ])
+    kb_rows.append([InlineKeyboardButton(text=cash_btn, callback_data=f"pay_method:cash:{group_id}")])
+    kb_rows.append([InlineKeyboardButton(text=online_btn, callback_data=f"pay_method:online:{group_id}")])
+    kb_rows.append([InlineKeyboardButton(text=back_btn, callback_data="pay_back_groups")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("pay_diff:"))
+async def pay_diff_selected(callback: CallbackQuery, i18n: I18nContext, state: FSMContext):
+    parts = callback.data.split(":")
+    group_id = int(parts[1])
+    diff_amount = float(parts[2])
+
+    async with async_session() as session:
+        group = await session.get(Group, group_id)
+        grp_name = group.name if group else "Yangi guruh"
+
+    await state.update_data(
+        group_id=group_id,
+        group_name=grp_name,
+        base_price=diff_amount,
+        discount_amount=0.0,
+        final_price=diff_amount,
+        discount_pct=0.0,
+    )
+
+    text = (
+        f"💳 <b>Guruhlar Farqi Uchun Qo'shimcha To'lov (Doplata)</b>\n\n"
+        f"📚 <b>Guruh:</b> {grp_name}\n"
+        f"💰 <b>To'lanadigan summa:</b> <b>{diff_amount:,.0f} so'm</b>\n\n"
+        f"To'lov usulini tanlang:"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💵 Naqd to'lov (Ofisda / O'qituvchiga)", callback_data=f"pay_method:cash:{group_id}")],
+        [InlineKeyboardButton(text="🌐 Online to'lov (Payme / Click / Uzum)", callback_data=f"pay_method:online:{group_id}")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="pay_cancel")],
+    ])
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
@@ -389,13 +687,25 @@ async def online_pay_complete(callback: CallbackQuery, i18n: I18nContext, state:
                 Enrollment.group_id == group_id,
             )
         )
-        if enr_res.scalar_one_or_none() is None:
+        is_first_enrollment = enr_res.scalar_one_or_none() is None
+        if is_first_enrollment:
             session.add(Enrollment(
                 student_id=student_id,
                 group_id=group_id,
                 status=EnrollmentStatusEnum.active,
                 enrolled_at=datetime.utcnow(),
             ))
+
+        # Hisoblangan yangi amal qilish muddati
+        group_pays_res = await session.execute(
+            select(Payment).where(
+                Payment.student_id == student_id,
+                Payment.group_id == group_id,
+                Payment.status == PaymentStatusEnum.confirmed
+            )
+        )
+        all_group_pays = group_pays_res.scalars().all()
+        new_coverage_end, _ = calculate_student_group_coverage(all_group_pays, course_price)
 
         # O'quvchining ishlatilgan referal bonuslarini yopish
         if discount_amount > 0:
@@ -442,15 +752,27 @@ async def online_pay_complete(callback: CallbackQuery, i18n: I18nContext, state:
 
     chat_link_info = f"🔗 <b>Guruh Telegram Chati:</b> <a href='{group_chat_link}'>Guruhga qo'shilish</a>\n\n" if group_chat_link else ""
 
-    await callback.message.edit_text(
-        f"🎉 <b>To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
-        f"👥 Guruh: <b>{group_name}</b>\n"
-        f"💳 To'lov turi: <b>{provider.upper()}</b>\n"
-        f"💰 To'langan summa: <b>{final_price:,.0f} so'm</b>\n\n"
-        f"{chat_link_info}"
-        f"Siz rasman guruh a'zosiga aylandingiz! Endi «📅 Jadvalim» va «📋 Uy Vazifam» bo'limlaridan to'liq foydalanishingiz mumkin.",
-        reply_markup=reply_markup,
-    )
+    if is_first_enrollment:
+        congrats_msg = (
+            f"🎉 <b>To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+            f"👥 Guruh: <b>{group_name}</b>\n"
+            f"💳 To'lov turi: <b>{provider.upper()}</b>\n"
+            f"💰 To'langan summa: <b>{final_price:,.0f} so'm</b>\n\n"
+            f"{chat_link_info}"
+            f"Siz rasman guruh a'zosiga aylandingiz! Endi «📅 Jadvalim» va «📋 Uy Vazifam» bo'limlaridan to'liq foydalanishingiz mumkin."
+        )
+    else:
+        cov_info = f"<b>{new_coverage_end.strftime('%d.%m.%Y')} gacha</b>" if new_coverage_end else "1 oyga"
+        congrats_msg = (
+            f"🎉 <b>To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+            f"👥 Guruh: <b>{group_name}</b>\n"
+            f"💳 To'lov turi: <b>{provider.upper()}</b>\n"
+            f"💰 To'langan summa: <b>{final_price:,.0f} so'm</b>\n"
+            f"📅 <b>To'lov muddati uzaytirildi:</b> {cov_info}\n\n"
+            f"Keyingi oy uchun darslaringiz muvaffaqiyatli faollashtirildi! O'qishlaringizda omad tilaymiz. 🚀"
+        )
+
+    await callback.message.edit_text(congrats_msg, reply_markup=reply_markup)
     await callback.answer("To'lov muvaffaqiyatli!", show_alert=True)
     await state.clear()
 
@@ -593,13 +915,27 @@ async def confirm_payment(callback: CallbackQuery):
                 Enrollment.group_id == payment.group_id,
             )
         )
-        if existing.scalar_one_or_none() is None:
+        is_first_enrollment = existing.scalar_one_or_none() is None
+        if is_first_enrollment:
             session.add(Enrollment(
                 student_id=payment.student_id,
                 group_id=payment.group_id,
                 status=EnrollmentStatusEnum.active,
                 enrolled_at=datetime.utcnow(),
             ))
+
+        # Hisoblangan yangi amal qilish muddati
+        all_pays_res = await session.execute(
+            select(Payment).where(
+                Payment.student_id == payment.student_id,
+                Payment.group_id == payment.group_id,
+                Payment.status == PaymentStatusEnum.confirmed
+            )
+        )
+        all_group_pays = all_pays_res.scalars().all()
+        course_obj = await session.get(Course, group.course_id) if group else None
+        c_price = float(course_obj.price) if course_obj else float(payment.amount)
+        new_coverage_end, _ = calculate_student_group_coverage(all_group_pays, c_price)
 
         # Referal bonuslarni yopish
         if payment.discount_amount and payment.discount_amount > 0:
@@ -655,16 +991,26 @@ async def confirm_payment(callback: CallbackQuery):
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard=success_buttons) if success_buttons else None
 
-    congrats_text = (
-        f"🎉 <b>To'lovingiz tasdiqlandi!</b>\n\n"
-        f"Siz rasman guruhga qabul qilindingiz:\n"
-        f"👥 <b>Guruh:</b> {group_name}\n"
-        f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
-        f"🗓 <b>Dars jadvali:</b> {schedule_str}\n"
-        f"🚪 <b>Xona / Manzil:</b> {room_str}\n\n"
-        f"{chat_link_info}"
-        f"Endi bot menyusidan «📅 Jadvalim» va «📋 Uy Vazifam» bo'limlarini kuzatib borishingiz mumkin. O'qishlaringizda muvaffaqiyat tilaymiz! 🚀"
-    )
+    if is_first_enrollment:
+        congrats_text = (
+            f"🎉 <b>To'lovingiz tasdiqlandi!</b>\n\n"
+            f"Siz rasman guruhga qabul qilindingiz:\n"
+            f"👥 <b>Guruh:</b> {group_name}\n"
+            f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
+            f"🗓 <b>Dars jadvali:</b> {schedule_str}\n"
+            f"🚪 <b>Xona / Manzil:</b> {room_str}\n\n"
+            f"{chat_link_info}"
+            f"Endi bot menyusidan «📅 Jadvalim» va «📋 Uy Vazifam» bo'limlarini kuzatib borishingiz mumkin. O'qishlaringizda muvaffaqiyat tilaymiz! 🚀"
+        )
+    else:
+        cov_info = f"<b>{new_coverage_end.strftime('%d.%m.%Y')} gacha</b>" if new_coverage_end else "1 oyga"
+        congrats_text = (
+            f"🎉 <b>To'lovingiz tasdiqlandi!</b>\n\n"
+            f"👥 <b>Guruh:</b> {group_name}\n"
+            f"💰 <b>Qabul qilingan summa:</b> {float(payment.amount):,.0f} so'm\n"
+            f"📅 <b>To'lov muddati uzaytirildi:</b> {cov_info}\n\n"
+            f"Keyingi oy uchun darslaringiz muvaffaqiyatli faollashtirildi. O'qishlaringizda omad tilaymiz! 🚀"
+        )
     try:
         await bot.send_message(student_id_target, congrats_text, reply_markup=reply_markup, parse_mode="HTML")
     except Exception:

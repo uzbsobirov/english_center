@@ -4,6 +4,82 @@ Barcha o'zgarishlar, yangilanishlar, xavfsizlik yaxshilanishlari va yangi modull
 
 ---
 
+## 🚀 [2026-09-04] — Smart To'lov Tizimi, Profil & Telefon Bug Fixlari (v2.6.7)
+
+### 1. 💳 Intellektual To'lov Tizimi & Takroriy To'lovdan Himoya (`payments.py`)
+- **Takroriy to'lovdan himoya:** Agar o'quvchi ushbu oy uchun allaqachon to'lov qilgan bo'lsa (oxirgi tasdiqlangan to'lovdan beri 30 kundan kam vaqt o'tgan bo'lsa), tizim yangi to'lovni shartli ravishda «Keyingi oy uchun oldindan to'lash» sifatida taqdim etadi.
+- **Kumulyativ muddat hisoblash (Chaining & Prepayments Fix):** Avval faqat bitta oxirgi to'lov olinib, unga 30 kun qo'shilgani sababli, agar o'quvchi keyingi oy uchun ham oldindan to'lov qilsa, muddat baribir 10-oy (oktabr) bo'lib qolayotgan edi. Endi `calculate_student_group_coverage` algoritmi orqali o'quvchining ushbu guruh bo'yicha barcha tasdiqlangan to'lovlari zanjir shaklida hisoblanadi:
+  - 1-to'lov: 04.09.2026 – 04.10.2026 (1-oy).
+  - 2-to'lov (oldindan to'langan): 04.10.2026 – 04.11.2026 (2-oy, 11-oy Noyabr!).
+  - 3-to'lov va hk.: navbatdagi oylar avtomatik qo'shilib boradi.
+- **To'liq to'lov holati kartasi:**
+  - ✅ **Oxirgi to'lov sanasi, summasi va usuli** (masalan: `04.09.2026, 450,000 so'm, Naqd`).
+  - 📅 **To'langan muddat va keyingi to'lov sanasi** (aniq oylar zanjiri asosida: masalan `04.11.2026`).
+  - 📊 **Davomat bo'yicha qatnashilgan darslar soni** (`Attendance` modeli bo'yicha `present`/`late` darslar aniq hisoblanadi).
+- **To'lov sahifasida qoplanadigan davr ko'rsatilishi:** O'quvchi to'lov tugmasini bosganda u aynan qaysi sanalar oralig'idagi davr uchun to'layotgani (masalan: `04.10.2026 – 04.11.2026 (Keyingi oy uchun)`) aniq ko'rsatiladi.
+- **To'lov tasdiqlanganda shaxsiylashtirilgan xabarnoma:** Birinchi bor qo'shilayotgan bo'lsa guruhga xush kelibsiz xabari, agar navbatdagi oy to'langan bo'lsa «To'lov muddati uzaytirildi (sana gacha)» xabarnomasi yuboriladi.
+- **Kutilayotgan to'lov ogohlantirishi:** Agar oldingi yuborilgan to'lov tasdiqlanish jarayonida bo'lsa (`status=pending`), o'quvchiga ortiqcha yangi to'lov so'rovi yaratish taqiqlanadi va admin tasdig'i kutilayotgani ko'rsatiladi.
+- **To'lovlar tarixi (`pay_history`):** O'quvchi o'zining barcha o'tgan to'lovlari (guruh, sana, summa, to'lov usuli, status) ro'yxatini ko'rish imkoniyatiga ega bo'ldi.
+
+---
+
+### 2. 📱 Telefon Raqam Qabul Qilish & Telegram Privacy Bug Fixi
+- **Telegram Desktop & Privacy Fix:** Telegram Desktop yoki maxfiylik sozlamalari yopiq foydalanuvchilar `[📱 Raqamni yuborish]` tugmasini bosganda `contact.user_id` qiymati `None` kelishi sababli bot kontaktni rad etish xatosi tuzatildi (`is_forwarded or (message.contact.user_id and message.contact.user_id != message.from_user.id)`).
+- **Matn ko'rinishida raqam kiritish:** O'quvchi xohlasa tugmani bosadi, xohlasa o'z raqamini to'g'ridan-to'g'ri matn sifatida (`+998901234567` yoki `901234567`) yozib yuborishi mumkin.
+- **Xalqaro formatlash:** Kiritilgan raqam avtomatik ravishda xalqaro `+998...` formatiga keltiriladi.
+- **Sozlamalar navigatsiyasi:** Sozlamalar menyusida `settings:back_to_menu` va `settings:close` callback handlerlari qo'shildi.
+
+---
+
+### 3. 👤 Profil & Username Sinxronizatsiyasi
+- **Hardcode `@admin` bartaraf etildi:** `init_db.py` da admin foydalanuvchisi yaratilishida `username="admin"` qat'iy yozuvi olib tashlandi (`username=None`).
+- **Jonli Telegram profili bilan avtomatik sinxronizatsiya:** Har safar foydalanuvchi `👤 Profilim` ni bosganda, `/start` yuborganda yoki bot bilan muloqot qilganda uning haqiqiy Telegram username'i va ismi bazaga avtomatik yangilanadi.
+
+---
+
+### 4. ⚙️ Scheduler & FreeTrialRequest Barqarorligi
+- **`updated_at` xavfsizligi:** `backend/services/scheduler.py` dagi `check_trial_attendance_reminders` funksiyasida `FreeTrialRequest.updated_at` ustuni mavjudligi va `NULL` holatlari `or_` yordamida himoyalandi.
+
+---
+
+### 5. 👥 Guruh Almashtirishda Pro-rata Moliyaviy Qayta Hisoblash (Doplata / Depozit)
+- **Qolgan mablag'ni adolatli hisoblash (`settings.py`):** O'quvchi boshqa guruhga o'tishni so'raganda:
+  - Eskisida o'tilgan darslar narxi hisoblanadi: `o'tilgan_darslar * (kurs_narxi / 12)`.
+  - Qolgan sof balans aniqlanadi: `to'langan_mablag' - o'tilgan_darslar_narxi`.
+  - Yangi guruhdagi qolgan darslar narxi hisoblanadi: `qolgan_darslar * (yangi_kurs_narxi / 12)`.
+  - O'rtadagi farq (`balance_difference`) shaffof ravishda hisoblanadi:
+    - 📈 **Qimmatroq guruhga o'tganda:** Qo'shimcha to'lov (doplata) miqdori aniqlanadi va ariza tasdiqlangach o'quvchiga darhol `[💳 To'lash]` tugmasi (`pay_diff:`) orqali to'lov imkoniyati beriladi.
+    - 📉 **Arzonroq guruhga o'tganda:** Ortiqcha qolgan mablag' kuyib ketmaydi, u depozit sifatida keyingi oylik to'lovga hisobga olinishi o'quvchiga bildiriladi.
+    - ⚖️ **Bir xil narxdagi guruhga o'tganda:** To'liq o'tkaziladi, hech qanday qo'shimcha to'lov talab etilmaydi.
+- **Baza va Model kengaytmasi:** `GroupChangeRequest` modeliga va `group_change_requests` jadvaliga `balance_difference NUMERIC(10, 2)` ustuni qo'shildi.
+- **Turli kurslar va To'lov menyusi bilan sinxronizatsiya:**
+  - Avval guruh almashtirish faqat bir xil kurs ichida cheklangan edi (`course_id == current_course.id`). Endi o'quvchi markazdagi **istalgan faol guruhga** (narxi arzon, teng yoki qimmatroq) o'tishi mumkin.
+  - `💳 To'lov` bo'limida ham o'quvchi boshqa guruhni tanlaganda, tizim uni yangi guruhga alohida to'liq to'lov qilish o'rniga, darhol `[🔄 Guruhni almashtirish (Balansni ko'chirish)]` tugmasi orqali doplata hisob-kitobiga yo'naltiradi.
+- **Ko'p oylik oldindan to'lovlar hisobi (Multi-month Prepaid Balance Transfer):**
+  - Agar o'quvchi eski guruh uchun bir necha oyga (masalan 2 oyga 900,000 so'm) to'lagan bo'lsa, qoldiq faqat oxirgi 1 to'lov bo'yicha emas, barcha tasdiqlangan to'lovlar yig'indisi bo'yicha to'liq hisoblanadi (`remaining_balance = total_paid - used_amount`).
+  - Natijada 500,000 so'mlik guruhga o'tganda qo'shimcha to'lov so'ralmaydi, aksincha **+400,000 so'm ortiqcha depozit** sifatida keyingi oyga saqlanadi!
+  - Guruh o'zgartirilishi tasdiqlangach, barcha to'lovlar avtomatik ravishda yangi guruh hisobiga ko'chiriladi (`Payment.group_id = target_group_id`).
+- **Tasdiqlash & To'lov integratsiyasi (`requests_approval.py` & `payments.py`):** O'qituvchi yoki admin guruh almashtirishni tasdiqlaganda o'quvchiga avtomatik hisob-kitob xabarnomasi yuboriladi va doplata zarur bo'lsa, bitta tugma orqali to'g'ridan-to'g'ri to'lov jarayoniga yo'naltiriladi.
+
+---
+
+### 6. 🧹 Bazani To'liq Tozalash & Yangidan Yaratish (`scripts/clean_and_reseed.py`)
+- **Testlar saqlandi:** Barcha CEFR va IELTS A1–C2 daraja testlari va savollari to'liq saqlab qolindi.
+- **Tozalangan jadvallar:** Barcha eski sinov hisoblari, o'quvchilar, davomatlar, to'lovlar, arizalar, uy vazifalari, guruhlar va kurslar to'liq tozalandi.
+- **Yangi boshlang'ich ma'lumotlar (Fresh Seed):**
+  - 🏢 Markaz sozlamalari (`ALPHA Learning Center`).
+  - 👤 Bosh Admin (`1435473812`, `admin` roli).
+  - 📚 3 ta rasmiy kurs:
+    - **IELTS Intensive** (650,000 so'm/oy)
+    - **CEFR B1/B2 Comprehensive** (500,000 so'm/oy)
+    - **General English** (450,000 so'm/oy)
+  - 👥 3 ta yangi faol guruh:
+    - `IELTS-Morning-01`
+    - `CEFR-Evening-01`
+    - `General-Afternoon-01`
+
+---
+
 ## 🚀 [2026-09-04] — Test Tizimi, Bug Fixes & Full Lifecycle Testing (v2.6.6)
 
 ### 1. 🐞 Scheduler & FreeTrialRequest Xatoligi Bartaraf Etildi

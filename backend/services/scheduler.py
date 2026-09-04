@@ -7,7 +7,7 @@ Avtomatlashtirilgan eslatmalar va fon cron xizmati (TZ v2.6, 13 & 16.2-bo'limlar
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from sqlalchemy import select, update
+from sqlalchemy import select, update, or_
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -220,7 +220,10 @@ async def check_trial_attendance_reminders(bot):
             .outerjoin(Group, FreeTrialRequest.group_id == Group.id)
             .where(
                 FreeTrialRequest.status == FreeTrialStatusEnum.invited,
-                FreeTrialRequest.updated_at <= cutoff,
+                or_(
+                    FreeTrialRequest.updated_at <= cutoff,
+                    FreeTrialRequest.updated_at.is_(None)
+                ),
             )
         )
         pending_trials = result.all()

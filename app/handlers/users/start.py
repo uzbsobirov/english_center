@@ -27,6 +27,21 @@ async def start(message: Message, command: CommandObject, state: FSMContext, i18
 
     if user is not None:
         # Oldin ro'yxatdan o'tgan foydalanuvchi - to'g'ridan-to'g'ri asosiy menyu
+        # Telegram ma'lumotlarini yangilab qo'yamiz
+        async with async_session() as session:
+            db_user = await session.get(User, message.from_user.id)
+            if db_user:
+                updated = False
+                if db_user.username != message.from_user.username:
+                    db_user.username = message.from_user.username
+                    updated = True
+                if message.from_user.full_name and db_user.full_name in ("Bosh Admin", "Foydalanuvchi", None, ""):
+                    db_user.full_name = message.from_user.full_name
+                    updated = True
+                if updated:
+                    await session.commit()
+                    user = db_user
+
         await state.clear()
         is_admin = await is_admin_or_manager(user.id) or await is_teacher(user.id)
         await message.answer(
@@ -107,29 +122,55 @@ async def name_entered(message: Message, state: FSMContext, i18n: I18nContext):
 
 
 @router.message(Registration.entering_phone, F.contact)
+@router.message(Registration.entering_phone, F.text)
 async def phone_shared(message: Message, state: FSMContext, i18n: I18nContext):
-    # 1. Forward qilingan kontaktlarni tekshiramiz va rad etamiz
-    is_forwarded = bool(
-        getattr(message, "forward_origin", None)
-        or getattr(message, "forward_from", None)
-        or getattr(message, "forward_from_chat", None)
-    )
-    if is_forwarded:
+    new_phone = None
+    if message.contact:
+        # 1. Forward qilingan kontaktlarni tekshiramiz va rad etamiz
+        is_forwarded = bool(
+            getattr(message, "forward_origin", None)
+            or getattr(message, "forward_from", None)
+            or getattr(message, "forward_from_chat", None)
+        )
+        if is_forwarded:
+            await message.answer(
+                "⚠️ <b>Forward qilingan kontaktlar qabul qilinmaydi!</b>\n\n"
+                "Iltimos, pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.",
+                reply_markup=phone_keyboard(i18n),
+            )
+            return
+
+        # 2. Faqat o'zining Telegram akkauntiga tegishli raqam ekanligini tekshiramiz (agar Telegram user_id yuborgan bo'lsa)
+        if message.contact.user_id and message.contact.user_id != message.from_user.id:
+            await message.answer(
+                "⚠️ <b>Xatolik!</b> Siz boshqa shaxsning kontaktini yubordingiz.\n\n"
+                "Iltimos, faqat pastdagi <b>«📱 Raqamni yuborish»</b> tugmasi orqali <b>o'zingizning</b> raqamingizni yuboring!",
+                reply_markup=phone_keyboard(i18n),
+            )
+            return
+        new_phone = message.contact.phone_number
+    elif message.text:
+        import re
+        phone_match = re.search(r"(\+?[0-9]{9,15})", message.text.replace(" ", "").replace("-", ""))
+        if phone_match:
+            new_phone = phone_match.group(1)
+
+    if not new_phone:
         await message.answer(
-            "⚠️ <b>Forward qilingan kontaktlar qabul qilinmaydi!</b>\n\n"
-            "Iltimos, pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.",
+            "⚠️ <b>Noto'g'ri telefon raqami.</b>\n\n"
+            "Iltimos, pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing yoki <code>+998901234567</code> formatida yozing:",
             reply_markup=phone_keyboard(i18n),
         )
         return
 
-    # 2. Faqat o'zining Telegram akkauntiga tegishli raqam ekanligini qat'iy tekshiramiz
-    if not message.contact or message.contact.user_id != message.from_user.id:
-        await message.answer(
-            "⚠️ <b>Xatolik!</b> Siz boshqa shaxsning kontaktini yubordingiz.\n\n"
-            "Iltimos, faqat pastdagi <b>«📱 Raqamni yuborish»</b> tugmasi orqali <b>o'zingizning</b> raqamingizni yuboring!",
-            reply_markup=phone_keyboard(i18n),
-        )
-        return
+    # Telefon raqamini xalqaro formatga keltirish (+998...)
+    if not new_phone.startswith("+"):
+        if len(new_phone) == 12 and new_phone.startswith("998"):
+            new_phone = "+" + new_phone
+        elif len(new_phone) == 9:
+            new_phone = "+998" + new_phone
+        else:
+            new_phone = "+" + new_phone
 
     data = await state.get_data()
     full_name = data.get("full_name", message.from_user.full_name)
@@ -144,7 +185,7 @@ async def phone_shared(message: Message, state: FSMContext, i18n: I18nContext):
         if user:
             user.full_name = full_name
             user.username = message.from_user.username
-            user.phone = message.contact.phone_number
+            user.phone = new_phone
             user.language = LanguageEnum(language) if isinstance(language, str) else language
             if is_admin_user:
                 user.role = RoleEnum.admin

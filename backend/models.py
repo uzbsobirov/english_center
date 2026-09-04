@@ -271,6 +271,7 @@ class GroupChangeRequest(Base):
     reason: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending / approved / rejected
     approved_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
+    balance_difference: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

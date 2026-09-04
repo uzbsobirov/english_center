@@ -3,7 +3,7 @@
 """
 from datetime import datetime
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select, update
 
 from backend.database import async_session
@@ -53,6 +53,18 @@ async def approve_group_change(callback: CallbackQuery):
         if enr:
             enr.group_id = req.target_group_id
 
+        # O'quvchining eski guruhdagi to'lovlarini yangi guruhga o'tkazamiz (balans ko'chirish)
+        await session.execute(
+            update(Payment)
+            .where(
+                Payment.student_id == req.student_id,
+                Payment.group_id == req.current_group_id,
+                Payment.status == PaymentStatusEnum.confirmed,
+            )
+            .values(group_id=req.target_group_id)
+        )
+
+        diff = float(req.balance_difference or 0.0)
         await session.commit()
 
     # Admin xabarini yangilaymiz
@@ -67,15 +79,43 @@ async def approve_group_change(callback: CallbackQuery):
     except Exception:
         pass
 
-    # O'quvchiga xabar jo'natamiz
+    # O'quvchiga moliyaviy hisob bilan xabar jo'natamiz
     try:
+        target_name = target_grp.name if target_grp else "Yangi guruh"
+        if diff > 0:
+            student_text = (
+                f"🎉 <b>Guruhni o'zgartirish so'rovingiz tasdiqlandi!</b>\n\n"
+                f"Siz muvaffaqiyatli <b>{target_name}</b> guruhiga o'tkazildingiz.\n"
+                f"📅 Dars jadvali va xona ma'lumotlarini «📅 Jadvalim» bo'limida ko'rishingiz mumkin.\n\n"
+                f"⚖️ <b>Qo'shimcha to'lov (Doplata):</b>\n"
+                f"Yangi guruh narxi yuqori bo'lgani sababli, qolgan darslar uchun <b>{diff:,.0f} so'm</b> farqni to'lashingiz lozim.\n\n"
+                f"To'lovni amalga oshirish uchun quyidagi tugmani bosing:"
+            )
+            student_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"💳 {diff:,.0f} so'm to'lash", callback_data=f"pay_diff:{req.target_group_id}:{int(diff)}")]
+            ])
+        elif diff < 0:
+            student_text = (
+                f"🎉 <b>Guruhni o'zgartirish so'rovingiz tasdiqlandi!</b>\n\n"
+                f"Siz muvaffaqiyatli <b>{target_name}</b> guruhiga o'tkazildingiz.\n"
+                f"📅 Dars jadvali va xona ma'lumotlarini «📅 Jadvalim» bo'limida ko'rishingiz mumkin.\n\n"
+                f"💰 <b>Ortiqcha qoldiq (Depozit):</b>\n"
+                f"Hisobingizda <b>+{abs(diff):,.0f} so'm</b> ortiqcha mablag' saqlandi va u keyingi oyingiz to'loviga avtomatik hisobga olinadi!"
+            )
+            student_kb = None
+        else:
+            student_text = (
+                f"🎉 <b>Guruhni o'zgartirish so'rovingiz tasdiqlandi!</b>\n\n"
+                f"Siz muvaffaqiyatli <b>{target_name}</b> guruhiga o'tkazildingiz.\n"
+                f"📅 Dars jadvali va xona ma'lumotlarini «📅 Jadvalim» bo'limida ko'rishingiz mumkin.\n\n"
+                f"✅ Oldingi to'lovingiz yangi guruh hisobiga to'liq o'tdi, qo'shimcha to'lov talab etilmaydi."
+            )
+            student_kb = None
+
         await bot.send_message(
             chat_id=req.student_id,
-            text=(
-                f"🎉 <b>Guruhni o'zgartirish so'rovingiz tasdiqlandi!</b>\n\n"
-                f"Siz muvaffaqiyatli <b>{target_grp.name if target_grp else ''}</b> guruhiga o'tkazildingiz.\n"
-                f"📅 Dars jadvali va xona ma'lumotlarini «📅 Jadvalim» bo'limida ko'rishingiz mumkin."
-            ),
+            text=student_text,
+            reply_markup=student_kb,
         )
     except Exception:
         pass

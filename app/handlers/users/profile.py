@@ -40,6 +40,19 @@ async def show_profile(message: Message, i18n: I18nContext):
             session.add(user)
             await session.commit()
             await session.refresh(user)
+        else:
+            # Foydalanuvchi Telegram ma'lumotlarini eng so'nggi holatga sinxronizatsiya qilamiz
+            updated = False
+            real_username = message.from_user.username
+            if user.username != real_username:
+                user.username = real_username
+                updated = True
+            if message.from_user.full_name and user.full_name in ("Bosh Admin", "Foydalanuvchi", None, ""):
+                user.full_name = message.from_user.full_name
+                updated = True
+            if updated:
+                await session.commit()
+                await session.refresh(user)
 
         # Faol yozilish (Enrollment) ni tekshiramiz
         enrollment_res = await session.execute(
@@ -74,7 +87,13 @@ async def show_profile(message: Message, i18n: I18nContext):
 
     # Sana formati
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "-"
-    username_str = f"@{user.username}" if user.username else "Mavjud emas"
+    actual_username = message.from_user.username if (message.from_user and message.from_user.username) else user.username
+    if actual_username and actual_username != "admin":
+        username_str = f"@{actual_username}"
+    elif user.username and user.username != "admin":
+        username_str = f"@{user.username}"
+    else:
+        username_str = "Mavjud emas"
     user_name_link = f"<a href='tg://user?id={user.id}'>{user.full_name}</a>"
     badges_str = " • ".join(badges) if badges else "Boshlang'ich"
 
@@ -109,7 +128,7 @@ async def show_profile(message: Message, i18n: I18nContext):
         schedule_str = format_schedule(group.schedule, lang)
 
         # Teacher link
-        if teacher and teacher.username:
+        if teacher and teacher.username and teacher.username != "admin":
             teacher_link_str = f"@{teacher.username} ({teacher.full_name})"
         elif teacher:
             teacher_link_str = f"<a href='tg://user?id={teacher.id}'>{teacher.full_name}</a>"

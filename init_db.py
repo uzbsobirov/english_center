@@ -387,7 +387,7 @@ async def seed_admins(session):
             user = User(
                 id=aid,
                 full_name="Bosh Admin",
-                username="admin",
+                username=None,
                 phone=None,
                 role=RoleEnum.admin,
                 language=LanguageEnum.uz,
@@ -397,6 +397,8 @@ async def seed_admins(session):
             print(f"  [+] Bosh admin yaratildi (ID: {aid}, Roli: admin)")
         else:
             user.role = RoleEnum.admin
+            if user.username == "admin":
+                user.username = None
             if not user.referral_code:
                 user.referral_code = f"ADMIN{aid % 10000}"
             print(f"  [+] Admin mavjud, roli yangilandi (ID: {aid})")
