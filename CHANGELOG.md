@@ -4,6 +4,77 @@ Barcha o'zgarishlar, yangilanishlar, xavfsizlik yaxshilanishlari va yangi modull
 
 ---
 
+## 🚀 [2026-09-04] — Test Tizimi, Bug Fixes & Full Lifecycle Testing (v2.6.6)
+
+### 1. 🐞 Scheduler & FreeTrialRequest Xatoligi Bartaraf Etildi
+- **`updated_at` Ustuni:** `backend/models.py` dagi `FreeTrialRequest` modeliga va PostgreSQL bazasidagi `free_trial_requests` jadvaliga `updated_at` ustuni qo'shildi (`DEFAULT CURRENT_TIMESTAMP`).
+- **Scheduler crash tuzatildi:** `backend/services/scheduler.py` dagi `check_trial_attendance_reminders` funksiyasida `FreeTrialRequest has no attribute 'updated_at'` sababli yuzaga kelgan bot polling to'xtab qolish xatosi butunlay tuzatildi.
+
+---
+
+### 2. 🧪 100 Ta Haqiqiy Sinov Hisoblari Generatori (`seed_100_test_accounts.py`)
+- **Taqsimot:** 5 ta O'qituvchi (Teachers) va 95 ta O'quvchi (Students) hisoblari yaratildi (`7100000001` – `7100000100`).
+- **Real ma'lumotlar:** Haqiqiy o'zbek/rus/ingliz ism-familiyalari, O'zbekiston operatorlari telefon raqamlari (+99890/91/93/94/97/99/33), tillar (`uz`, `ru`, `en`) va darajalar (`A1`–`C2`).
+- **Bog'langan modullar:** 34 ta referal zanjiri va bonusi, 64 ta guruhga a'zolik (Enrollment), 64 ta to'lov (Payme, Click, Uzum, Cash), 215 ta dars davomati, 81 ta test natijalari, 101 ta gamifikatsiya nishonlari (Badges) va 30 ta Free Trial arizalari yaratildi.
+
+---
+
+### 3. 🎯 Test Tizimi Javob Tekshiruvi Bug Fixi (`backend/api/routes/tests.py`)
+- **To'g'ri javoblar kaliti moslashtirildi:** A2, B1, B2, C1, C2 testlarida to'g'ri javoblar kaliti `"correct"`, A1 da esa `"correct_answer"` bo'lganligi sababli `_is_answer_correct` funksiyasi barcha A2–C2 testlarini 0 ball (0%) qilib baholayotgan edi.
+- **Tuzatish:** `_is_answer_correct` funksiyasida `correct = q.get("correct_answer") or q.get("correct")` qoidasi joriy etildi.
+- **Baza sinxronizatsiyasi:** `scratch/fix_all_test_questions.py` orqali bazadagi barcha A1–C2 testlarining savollarida ikkala kalit ham sinxronlandi va o'tish bali standart `70.0%` ga to'g'rilandi.
+
+---
+
+### 4. 📱 O'quvchi WebApp API Kengaytmasi (`backend/api/routes/student.py`)
+- **`GET /api/student/schedule`:** O'quvchining barcha faol guruhlari, guruh nomi, dars vaqtlari, xona raqami, zoom havolasi va o'qituvchi ismini qaytaruvchi yangi endpoint qo'shildi (`aliased(User)` xavfsiz bog'lanishi bilan).
+- **`GET /api/student/homework`:** O'quvchi a'zo bo'lgan guruhlarning eng so'nggi faol uy vazifalari, tavsifi, topshirish muddati va fayllarini qaytaruvchi endpoint ishga tushirildi.
+
+---
+
+### 5. 🛡 Testlashda Shaxsiy Akkauntdan Xoli Bo'lish (`test_suite.py`)
+- **Shaxsiy akkaunt himoyasi:** `test_suite.py` test topshirishda shaxsiy admin Telegram ID si o'rniga maxsus fake student akkaunti (`7100000010`) ga o'tkazildi.
+- **`send_fake_account_requests.py`:** 5 ta o'qituvchi va 15+ ta o'quvchi nomidan real vaqtda FastAPI ga so'rovlar (Test topshirish, progressni ko'rish, o'qituvchi kabineti) yuboruvchi test simulyatori yaratildi.
+
+---
+
+### 6. 🌟 To'liq Ekotizim Sikli Simulyatori (`run_full_lifecycle_flow.py`)
+- **7 bosqichli to'liq avtomatlashtirish:**
+  1. Admin yangi IELTS va General English guruhlarini ochadi.
+  2. Yangi o'quvchilar daraja testini topshirib, Free Darsga ariza jo'natadi.
+  3. O'qituvchilar Free Darsni qabul qilib, sinov darsini o'tishadi.
+  4. O'quvchilar to'lov qiladi va admin to'lovni tasdiqlab, guruhga a'zo qiladi.
+  5. O'qituvchilar yangi guruhga uy vazifasi biriktiradi.
+  6. O'qituvchi dars davomatini belgilaydi.
+  7. O'quvchilar yangilangan dars jadvali va uy vazifalarini ko'radi.
+
+---
+
+### 7. 👑 Master Ekotizim Testi (15/15 Barcha Funksiyalar Sinovi — `master_ecosystem_test.py`)
+- **To'liq qamrovli master sinov:**
+  1. 📝 Yangi test yaratish (`POST /api/teacher/save-test`)
+  2. 👨‍🏫 Yangi o'qituvchi tayinlash (`POST /api/admin/teachers`)
+  3. 🛡 Yangi admin tayinlash (`POST /api/admin/admins`)
+  4. 👥 Yangi guruh ochish (`POST /api/admin/groups`)
+  5. 🎯 Free Dars arizasi yuborish va o'qituvchi dars o'tishi (`FreeTrialRequest`)
+  6. 💳 To'lovlar: Naqd to'lovni tasdiqlash va Payme Online Webhook to'lovi (`PerformTransaction`)
+  7. 💬 Bot orqali Support Chat (savol berish, adminga borishi, javob berilib yopilishi)
+  8. 🎁 Referal tizimi: Do'stini taklif qilish, +5% kümülyativ chegirma va Ambassador badge
+  9. 📋 Yangi guruhga uy vazifasi yuklash va o'quvchi tomonidan qabul qilish
+  10. 🚫 O'quvchini guruhdan chetlatish (`EnrollmentStatusEnum.dropped`)
+  11. 🔄 O'quvchi guruhini almashtirish (`GroupChangeRequest` tasdiqlanishi)
+  12. 📊 O'quvchi progressi (davomat %, test ballari, nishonlar)
+  13. ✍️ Oddiy daraja testini topshirish va baholash
+  14. 📢 Reklama / Ommaviy xabarnoma tarqatish (`POST /api/admin/broadcast`)
+  15. 🎓 ReportLab orqali rasmiy PDF sertifikat yaratish (`generate_certificate_pdf`)
+
+---
+
+### 📌 Yodda saqlangan (Kelgusi yaxshilanishlar uchun reja):
+- **Katta guruhlar uchun tezkor davomat (Quick Pick):** 20-30 kishilik guruhlarda kechikib kelgan o'quvchini boshidan qayta bosmasdan, to'g'ridan-to'g'ri ro'yxatdan tanlab 1 ta bosishda statusini o'zgartirish mexanizmi.
+
+---
+
 ## 🚀 [2026-09-01] — Katta Yangilanish (v2.6.5)
 
 ### 1. 🛡 Ro'yxatdan O'tish & Kontakt Xavfsizligi

@@ -135,6 +135,7 @@ class FreeTrialRequest(Base):
     student_rating: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)  # 1-5 yulduz
     student_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class EnrollmentStatusEnum(str, enum.Enum):

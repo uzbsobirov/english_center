@@ -71,7 +71,9 @@ async def run_all_tests():
         "answers": answers,
         "duration_seconds": 30,
     }
-    status, data = test_api_endpoint(f"http://127.0.0.1:8000/api/tests/{a1_id}/submit?user_id=1435473812", method="POST", payload=submit_payload)
+    # Fake test student ID ishlatamiz (shaxsiy akkaunt o'rniga)
+    test_fake_student_id = 7100000010
+    status, data = test_api_endpoint(f"http://127.0.0.1:8000/api/tests/{a1_id}/submit?user_id={test_fake_student_id}", method="POST", payload=submit_payload)
     if status == 200 and "score" in data:
         print(f"✅ 3. POST /api/tests/{a1_id}/submit -> Muvaffaqiyatli (Score: {data['score']}/{data['total']}, Passed: {data['passed']})")
         passed_count += 1

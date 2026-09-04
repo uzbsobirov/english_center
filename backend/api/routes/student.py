@@ -8,7 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 
 from backend.database import async_session
-from backend.models import User, Enrollment, Group, Course, Homework, TestResult, Attendance, AttendanceStatusEnum, UserBadge
+from backend.models import (
+    User, Enrollment, EnrollmentStatusEnum, Group, Course,
+    Homework, TestResult, Attendance, AttendanceStatusEnum, UserBadge
+)
 from backend.deps import get_current_telegram_user
 
 router = APIRouter(prefix="/api/student", tags=["student"])
@@ -54,3 +57,80 @@ async def get_student_progress(user: dict = Depends(get_current_telegram_user)):
         "tests_taken": len(test_results),
         "badges": badges,
     }
+
+
+@router.get("/schedule")
+async def get_student_schedule(user: dict = Depends(get_current_telegram_user)):
+    student_id = user["id"]
+    from sqlalchemy.orm import aliased
+    Teacher = aliased(User)
+    async with async_session() as session:
+        enr_res = await session.execute(
+            select(Enrollment, Group, Course, Teacher)
+            .join(Group, Enrollment.group_id == Group.id)
+            .join(Course, Group.course_id == Course.id)
+            .outerjoin(Teacher, Group.teacher_id == Teacher.id)
+            .where(
+                Enrollment.student_id == student_id,
+                Enrollment.is_active == True,
+                Enrollment.status == EnrollmentStatusEnum.active,
+            )
+        )
+        rows = enr_res.all()
+
+        schedule_items = []
+        for enr, grp, crs, teacher in rows:
+            schedule_items.append({
+                "group_id": grp.id,
+                "group_name": grp.name,
+                "course_title": crs.title.get("uz", "") if isinstance(crs.title, dict) else str(crs.title),
+                "level": crs.level.value if hasattr(crs.level, "value") else str(crs.level),
+                "schedule": grp.schedule,
+                "room": grp.room,
+                "zoom_link": grp.zoom_link,
+                "group_chat_link": grp.group_chat_link,
+                "teacher_name": teacher.full_name if teacher else "O'qituvchi",
+            })
+    return schedule_items
+
+
+@router.get("/homework")
+async def get_student_homework(user: dict = Depends(get_current_telegram_user)):
+    student_id = user["id"]
+    async with async_session() as session:
+        enr_res = await session.execute(
+            select(Enrollment.group_id)
+            .where(
+                Enrollment.student_id == student_id,
+                Enrollment.is_active == True,
+                Enrollment.status == EnrollmentStatusEnum.active,
+            )
+        )
+        group_ids = [r[0] for r in enr_res.all()]
+        if not group_ids:
+            return []
+
+        hw_res = await session.execute(
+            select(Homework, Group, User)
+            .join(Group, Homework.group_id == Group.id)
+            .outerjoin(User, Homework.teacher_id == User.id)
+            .where(Homework.group_id.in_(group_ids))
+            .order_by(Homework.created_at.desc())
+        )
+        hw_rows = hw_res.all()
+
+        results = []
+        for hw, grp, teacher in hw_rows:
+            results.append({
+                "id": hw.id,
+                "group_id": grp.id,
+                "group_name": grp.name,
+                "title": hw.title,
+                "description": hw.description,
+                "file_id": hw.file_id,
+                "due_at": hw.due_at.strftime("%d.%m.%Y %H:%M") if hw.due_at else None,
+                "teacher_name": teacher.full_name if teacher else "O'qituvchi",
+                "created_at": hw.created_at.strftime("%d.%m.%Y %H:%M") if hw.created_at else None,
+            })
+    return results
+

@@ -4,6 +4,54 @@ Ushbu hujjatda **English Center** loyihasining texnik topshiriq (TZ v2.6) talabl
 
 ---
 
+## 0. 🌟 [2026-09-04] So'nggi Yangilanishlar, Bug Fixlar va Testlash Natijalari (v2.6.6)
+
+### 🐞 1. Scheduler Crash va `FreeTrialRequest.updated_at` Tuzatildi
+- **Fayllar:** `backend/models.py`, `backend/services/scheduler.py`
+- **Tavsif:** `FreeTrialRequest` modeliga va PostgreSQL jadvaliga `updated_at` ustuni qo'shildi. `check_trial_attendance_reminders` vaqti-vaqti bilan fon rejimida tekshiruv o'tkazganda `updated_at` yo'qligi sababli bot polling to'xtab qolishi bartaraf etildi.
+
+### 🧪 2. 100 ta Haqiqiy Sinov Hisoblari Generatori
+- **Fayl:** `seed_100_test_accounts.py` *(Yangi)*
+- **Tavsif:** Baza 5 ta o'qituvchi va 95 ta talaba (ID: `7100000001` - `7100000100`) bilan boyitildi. Har bir akkaunt uchun real o'zbek/rus/ingliz ismlari, telefon raqamlari, referal zanjirlari, kurslarga yozilishlar, Click/Payme to'lovlari, dars davomati, test natijalari va nishonlar yaratildi.
+
+### 🎯 3. A2–C2 Test Natijalari Baholashidagi Kritik Xatolik Tuzatildi
+- **Fayllar:** `backend/api/routes/tests.py`, `scratch/fix_all_test_questions.py`
+- **Tavsif:** A2–C2 testlarida to'g'ri javob kaliti `"correct"` shaklida bo'lgani, tekshiruvchi esa faqat `"correct_answer"` ni tekshirgani uchun o'quvchi to'g'ri javob berganda ham 0% ball chiqib qolayotgan edi. `correct = q.get("correct_answer") or q.get("correct")` qoidasi joriy etilib, bazadagi barcha savollar to'liq sinxronlandi.
+
+### 📱 4. O'quvchi WebApp Dars Jadvali va Uy Vazifalari API
+- **Fayl:** `backend/api/routes/student.py`
+- **Tavsif:** 
+  - `GET /api/student/schedule` — O'quvchi a'zo bo'lgan guruhlarning dars kunlari, vaqti, xonasi, zoom va chat havolalarini qaytaradi.
+  - `GET /api/student/homework` — O'quvchiga biriktirilgan faol uy vazifalari ro'yxatini yuklaydi.
+
+### 🌟 5. To'liq O'quv Markazi Sikli Simulyatori
+- **Fayllar:** `run_full_lifecycle_flow.py` *(Yangi)*, `send_fake_account_requests.py` *(Yangi)*
+- **Tavsif:** Yangi guruh ochishdan tortib, test topshirish, bepul darsga ariza, o'qituvchi qabul qilishi, to'lov tasdiqlanishi, uy vazifasi biriktirilishi, davomat olinishi va o'quvchi kabinetida ko'rinishigacha bo'lgan 7 bosqichli to'liq zanjir 100% muvaffaqiyatli sinovdan o'tkazildi.
+
+### 👑 6. Master Ekotizim Testi (15/15 Barcha Funksiyalar Sinovi)
+- **Fayl:** `master_ecosystem_test.py` *(Yangi)*
+- **Tavsif:** Tizimdagi 15 ta asosiy funksiya avtomatlashtirilgan tarzda sinovdan o'tkazildi:
+  1. 📝 Yangi test yaratish (`POST /api/teacher/save-test`)
+  2. 👨‍🏫 Yangi o'qituvchi tayinlash (`POST /api/admin/teachers`)
+  3. 🛡 Yangi admin tayinlash (`POST /api/admin/admins`)
+  4. 👥 Yangi guruh ochish (`POST /api/admin/groups`)
+  5. 🎯 Free Dars arizasi yuborish va o'qituvchi dars o'tishi (`FreeTrialRequest`)
+  6. 💳 To'lovlar: Naqd to'lovni tasdiqlash va Payme Online Webhook to'lovi (`PerformTransaction`)
+  7. 💬 Bot orqali Support Chat (savol berish, adminga borishi, javob berilib yopilishi)
+  8. 🎁 Referal tizimi: Do'stini taklif qilish, +5% kümülyativ chegirma va Ambassador badge
+  9. 📋 Yangi guruhga uy vazifasi yuklash va o'quvchi tomonidan qabul qilish
+  10. 🚫 O'quvchini guruhdan chetlatish (`EnrollmentStatusEnum.dropped`)
+  11. 🔄 O'quvchi guruhini almashtirish (`GroupChangeRequest` tasdiqlanishi)
+  12. 📊 O'quvchi progressi (davomat %, test ballari, nishonlar)
+  13. ✍️ Oddiy daraja testini topshirish va baholash
+  14. 📢 Reklama / Ommaviy xabarnoma tarqatish (`POST /api/admin/broadcast`)
+  15. 🎓 ReportLab orqali rasmiy PDF sertifikat yaratish (`generate_certificate_pdf`)
+
+### 📌 Yodda saqlangan:
+- *Katta guruhlarda (30 talaba) davomat olishda butun ro'yxatni boshidan aylanib chiqmasdan, kech qolgan talabani to'g'ridan-to'g'ri ro'yxatdan tanlab 1 ta bosishda «Kech qoldi» qilish mexanizmi.*
+
+---
+
 ## 1. 🤖 Telegram Bot (Foydalanuvchi & O'qituvchi/Admin Menyulari)
 
 ### 📢 Multimedia Xabar Yuborish (Broadcast)

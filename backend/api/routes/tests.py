@@ -332,7 +332,7 @@ def _is_answer_correct(q: dict, student_ans: str | None) -> bool:
     if student_ans is None:
         return False
 
-    correct = q.get("correct_answer")
+    correct = q.get("correct_answer") or q.get("correct")
     if correct is None:
         return False
 
