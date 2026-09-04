@@ -34,8 +34,12 @@ def run_cloudflare_tunnel():
     print("[*] Cloudflare Tunnel ishga tushirilmoqda (localhost:5173)...")
     print("=" * 65)
 
+    # Eski yetim qolgan cloudflared jarayonlarini tozalash
+    if os.name == "nt":
+        subprocess.run("taskkill /F /IM cloudflared.exe >nul 2>&1", shell=True)
+
     bin_name = "cloudflared.cmd" if os.name == "nt" else "cloudflared"
-    cmd = [bin_name, "tunnel", "--url", "http://localhost:5173"]
+    cmd = [bin_name, "tunnel", "--protocol", "http2", "--url", "http://localhost:5173"]
     
     proc = subprocess.Popen(
         cmd,
@@ -65,7 +69,11 @@ def run_cloudflare_tunnel():
         proc.wait()
     except KeyboardInterrupt:
         print("\nTunnel to'xtatildi.")
-        proc.terminate()
+        if os.name == "nt":
+            subprocess.run(f"taskkill /F /T /PID {proc.pid} >nul 2>&1", shell=True)
+            subprocess.run("taskkill /F /IM cloudflared.exe >nul 2>&1", shell=True)
+        else:
+            proc.terminate()
         return False
 
     return True

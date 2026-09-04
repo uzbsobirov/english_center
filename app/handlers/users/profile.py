@@ -3,6 +3,7 @@
 - Kursda o'qimasa: Stikerli karta, ma'lumotlar, referal kod, badge'lar + Free darsga yozilish tugmasi
 - Kursda o'qisa: Kurs nomi, o'qituvchi username linki, guruh chatiga havola, to'lov holati, badge'lar
 """
+from datetime import datetime
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
@@ -78,9 +79,25 @@ async def show_profile(message: Message, i18n: I18nContext):
                 select(Payment).where(
                     Payment.student_id == user_id,
                     Payment.group_id == enrollment.group_id,
-                ).order_by(Payment.created_at.desc())
+                    Payment.status == PaymentStatusEnum.confirmed,
+                ).order_by(Payment.created_at.asc())
             )
-            payment = pay_res.scalars().first()
+            confirmed_pays = pay_res.scalars().all()
+
+            # Pending payment borligini ham tekshiramiz
+            pending_pay_res = await session.execute(
+                select(Payment).where(
+                    Payment.student_id == user_id,
+                    Payment.group_id == enrollment.group_id,
+                    Payment.status == PaymentStatusEnum.pending,
+                ).limit(1)
+            )
+            has_pending = pending_pay_res.scalars().first() is not None
+
+            from app.handlers.users.payments import calculate_student_group_coverage
+            cov_end, total_months, deposit_bal = calculate_student_group_coverage(
+                confirmed_pays, float(course.price)
+            ) if course else (None, 0, 0.0)
 
         # Badges list
         badges = await get_user_badges_summary(user_id)
@@ -139,9 +156,14 @@ async def show_profile(message: Message, i18n: I18nContext):
         group_chat_str = f"<a href='{group.group_chat_link}'>Guruh chatiga kirish 🔗</a>" if group.group_chat_link else "Havola yo'q"
 
         # To'lov holati
-        if payment and payment.status == PaymentStatusEnum.confirmed:
-            payment_status_str = f"✅ To'langan ({float(payment.amount):,.0f} so'm)"
-        elif payment and payment.status == PaymentStatusEnum.pending:
+        now = datetime.utcnow()
+        if cov_end and cov_end > now:
+            payment_status_str = f"✅ {cov_end.strftime('%d.%m.%Y')} gacha to'langan"
+            if deposit_bal > 0:
+                payment_status_str += f" (💰 +{deposit_bal:,.0f} so'm depozit)"
+        elif deposit_bal > 0:
+            payment_status_str = f"⚠️ Qisman to'langan (💰 +{deposit_bal:,.0f} so'm depozit)"
+        elif has_pending:
             payment_status_str = "⏳ Tasdiqlash jarayonida"
         else:
             payment_status_str = "❌ To'lanmagan"
@@ -165,8 +187,12 @@ async def show_profile(message: Message, i18n: I18nContext):
         buttons = []
         if group.group_chat_link:
             buttons.append([InlineKeyboardButton(text="👥 Guruh Telegram Chati", url=group.group_chat_link)])
-        if payment and payment.status != PaymentStatusEnum.confirmed:
-            buttons.append([InlineKeyboardButton(text="💳 To'lov qilish", callback_data=f"pay_group:{group.id}")])
+        if not (cov_end and cov_end > now):
+            pay_btn_label = "💳 To'lov qilish"
+            if deposit_bal > 0 and course:
+                needed = max(0.0, float(course.price) - deposit_bal)
+                pay_btn_label = f"💳 Qolgan {needed:,.0f} so'mni to'lash"
+            buttons.append([InlineKeyboardButton(text=pay_btn_label, callback_data=f"pay_group:{group.id}")])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
         await message.answer(

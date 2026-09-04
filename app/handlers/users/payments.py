@@ -40,25 +40,44 @@ def add_calendar_months(dt: datetime, months: int = 1) -> datetime:
     return dt.replace(year=year, month=month, day=min(dt.day, max_days))
 
 
-def calculate_student_group_coverage(payments: list[Payment], base_course_price: float = 0.0) -> tuple[datetime | None, int]:
+def calculate_student_group_coverage(
+    payments: list[Payment],
+    base_course_price: float = 0.0,
+) -> tuple[datetime | None, int, float]:
     """
-    Hisoblangan to'lovlar zanjiri (chaining) orqali to'lov amal qilish muddati (coverage_end)
-    va to'langan oylar sonini aniqlaydi.
+    Hisoblangan to'lovlar zanjiri (chaining) orqali to'lov amal qilish muddati (coverage_end),
+    to'langan to'liq oylar soni (total_months_paid) va to'liq oyga yetmagan ortiqcha
+    depozit qoldig'i (deposit_balance) ni aniqlaydi.
     """
+    if not payments or base_course_price <= 0:
+        return None, 0, 0.0
+
+    course_price = float(base_course_price)
+    sorted_pays = sorted(payments, key=lambda p: p.created_at or datetime.utcnow())
+
     coverage_end = None
     total_months_paid = 0
+    deposit_balance = 0.0
 
-    sorted_pays = sorted(payments, key=lambda p: p.created_at or datetime.utcnow())
     for p in sorted_pays:
         pay_time = p.created_at or datetime.utcnow()
-        equiv_months = max(1, int(round((float(p.amount) + float(p.discount_amount or 0.0)) / max(float(base_course_price), 1.0))))
-        if coverage_end is None or pay_time > coverage_end:
-            coverage_end = add_calendar_months(pay_time, equiv_months)
-        else:
-            coverage_end = add_calendar_months(coverage_end, equiv_months)
-        total_months_paid += equiv_months
+        amt = float(p.amount) + float(p.discount_amount or 0.0)
 
-    return coverage_end, total_months_paid
+        # Mavjud depozit qoldig'iga yangi to'lov summasini qo'shamiz
+        available = deposit_balance + amt
+
+        # Bu summa necha to'liq oyni qoplaydi?
+        months = int(available // course_price)
+        deposit_balance = round(available % course_price, 2)
+
+        if months > 0:
+            if coverage_end is None or pay_time > coverage_end:
+                coverage_end = add_calendar_months(pay_time, months)
+            else:
+                coverage_end = add_calendar_months(coverage_end, months)
+            total_months_paid += months
+
+    return coverage_end, total_months_paid, deposit_balance
 
 PAY_BUTTON_TEXTS = {
     "💳 To'lov", "💳 Оплата", "💳 Payment",
@@ -155,7 +174,7 @@ async def start_payment(event: Message | CallbackQuery, i18n: I18nContext, state
             )).scalars().all()
 
             last_confirmed_pay = confirmed_pays[-1] if confirmed_pays else None
-            coverage_end, total_months_paid = calculate_student_group_coverage(confirmed_pays, float(course.price))
+            coverage_end, total_months_paid, deposit_balance = calculate_student_group_coverage(confirmed_pays, float(course.price))
 
             # 3. Davomat bo'yicha qatnashgan darslar soni
             attended_lessons = (await session.execute(
@@ -175,6 +194,7 @@ async def start_payment(event: Message | CallbackQuery, i18n: I18nContext, state
             # 4. To'lov holatini hisoblash
             now = datetime.utcnow()
             is_paid_active = bool(coverage_end and coverage_end > now)
+            course_price = float(course.price)
             last_pay_info = None
             if last_confirmed_pay and coverage_end:
                 method_name = "Naqd" if last_confirmed_pay.method == PaymentMethodEnum.cash else "Payme / Online"
@@ -203,8 +223,11 @@ async def start_payment(event: Message | CallbackQuery, i18n: I18nContext, state
                 buttons.append([InlineKeyboardButton(text="🔄 Boshqa guruhni tanlash", callback_data="pay_show_all_groups")])
             elif is_paid_active and last_pay_info and coverage_end:
                 # To'lov faol
-                one_month_from_now = add_calendar_months(now, 1)
-                is_prepaid_future = coverage_end > one_month_from_now or total_months_paid >= 2
+                is_prepaid_future = total_months_paid >= 2
+
+                deposit_line = ""
+                if deposit_balance > 0:
+                    deposit_line = f"▫️ 💰 <b>Depozit qoldig'i:</b> <b>+{deposit_balance:,.0f} so'm</b>\n"
 
                 if is_prepaid_future:
                     status_title = f"Keyingi oy uchun ham to'langan! ({total_months_paid} oylik to'lov)"
@@ -212,14 +235,26 @@ async def start_payment(event: Message | CallbackQuery, i18n: I18nContext, state
                         f"🎉 <i>Siz <b>{coverage_end.strftime('%d.%m.%Y')} gacha</b> (keyingi oy uchun ham) to'lov qilgansiz. "
                         f"Darslarda bemalol qatnashishingiz mumkin!</i>"
                     )
+                    if deposit_balance > 0:
+                        period_note += f"\n<i>(Hisobingizda qo'shimcha <b>+{deposit_balance:,.0f} so'm</b> depozit saqlanmoqda)</i>"
                     pay_btn_text = f"💳 Yana oldindan to'lash ({coverage_end.strftime('%d.%m.%Y')} dan keyin)"
                 else:
                     status_title = "Joriy oy uchun to'langan!"
-                    period_note = (
-                        f"ℹ️ <i>Siz joriy oy uchun to'lov qilgansiz. Agar istasangiz, keyingi oy "
-                        f"({coverage_end.strftime('%d.%m.%Y')} dan boshlab) uchun oldindan to'lov qilishingiz mumkin:</i>"
-                    )
-                    pay_btn_text = "💳 Keyingi oy uchun oldindan to'lash"
+                    if deposit_balance > 0:
+                        next_needed = max(0.0, course_price - deposit_balance)
+                        period_note = (
+                            f"ℹ️ <i>Siz joriy oy uchun to'lov qilgansiz ({coverage_end.strftime('%d.%m.%Y')} gacha).\n"
+                            f"💰 Hisobingizda <b>+{deposit_balance:,.0f} so'm depozit</b> saqlanmoqda. "
+                            f"Keyingi oy ({coverage_end.strftime('%d.%m.%Y')} dan) uchun to'lov {course_price:,.0f} so'm bo'lib, "
+                            f"depozitingiz hisobga olinganda faqat <b>{next_needed:,.0f} so'm</b> to'lashingiz kifoya!</i>"
+                        )
+                        pay_btn_text = f"💳 Keyingi oy uchun to'lash ({next_needed:,.0f} so'm)"
+                    else:
+                        period_note = (
+                            f"ℹ️ <i>Siz joriy oy uchun to'lov qilgansiz. Agar istasangiz, keyingi oy "
+                            f"({coverage_end.strftime('%d.%m.%Y')} dan boshlab) uchun oldindan to'lov qilishingiz mumkin:</i>"
+                        )
+                        pay_btn_text = "💳 Keyingi oy uchun oldindan to'lash"
 
                 card_text = (
                     f"💳 <b>Kurs To'lovi Holati</b>\n\n"
@@ -231,6 +266,7 @@ async def start_payment(event: Message | CallbackQuery, i18n: I18nContext, state
                     f"▫️ <b>Oxirgi to'lov:</b> {last_pay_info['date']} ({last_pay_info['amount']:,.0f} so'm, {last_pay_info['method']})\n"
                     f"▫️ <b>To'langan muddat:</b> <b>{coverage_end.strftime('%d.%m.%Y')} gacha</b>\n"
                     f"▫️ <b>Keyingi to'lov sanasi:</b> <b>{coverage_end.strftime('%d.%m.%Y')}</b>\n"
+                    f"{deposit_line}"
                     f"▫️ <b>Qatnashilgan darslar:</b> <b>{attended_lessons} ta dars</b> (jami o'tilgan: {total_lessons_tracked})\n\n"
                     f"{period_note}"
                 )
@@ -247,18 +283,30 @@ async def start_payment(event: Message | CallbackQuery, i18n: I18nContext, state
                     history_hint = f"⚠️ <i>Oldingi to'lov muddati {coverage_end.strftime('%d.%m.%Y')} da tugagan ({last_pay_info['amount']:,.0f} so'm).</i>\n"
                 attendance_hint = f"📊 <b>Qatnashilgan darslar:</b> {attended_lessons} ta dars.\n\n" if attended_lessons > 0 else "\n"
 
+                deposit_hint = ""
+                btn_pay_title = f"💳 {group.name} uchun to'lov qilish"
+                if deposit_balance > 0:
+                    needed = max(0.0, course_price - deposit_balance)
+                    deposit_hint = (
+                        f"💰 <b>Hisobingizda depozit bor:</b> <b>+{deposit_balance:,.0f} so'm</b>\n"
+                        f"ℹ️ <i>Joriy oyni to'liq faollashtirish uchun depozit hisobga olinib, "
+                        f"yana <b>{needed:,.0f} so'm</b> to'lashingiz lozim.</i>\n\n"
+                    )
+                    btn_pay_title = f"💳 Qolgan {needed:,.0f} so'mni to'lash"
+
                 card_text = (
                     f"💳 <b>Kurs To'lovi</b>\n\n"
                     f"🎯 <b>Siz yozilgan guruh:</b> <b>{group.name}</b>\n"
                     f"📚 <b>Kurs:</b> {course_title} ({course.level.value})\n"
                     f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
                     f"🗓 <b>Dars jadvali:</b> {sched_str}\n"
-                    f"💰 <b>Oylik to'lov:</b> <b>{float(course.price):,.0f} so'm</b>\n\n"
+                    f"💰 <b>Oylik to'lov:</b> <b>{course_price:,.0f} so'm</b>\n\n"
+                    f"{deposit_hint}"
                     f"{history_hint}{attendance_hint}"
                     f"<i>To'lovni amalga oshirish uchun quyidagi tugmani bosing:</i>"
                 )
                 buttons.append([InlineKeyboardButton(
-                    text=f"💳 {group.name} uchun to'lov qilish",
+                    text=btn_pay_title,
                     callback_data=f"pay_group:{group.id}",
                 )])
                 if last_confirmed_pay:
@@ -410,7 +458,7 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
             )
         )
         group_pays = confirmed_res.scalars().all()
-        cov_end, _ = calculate_student_group_coverage(group_pays, float(course.price))
+        cov_end, _, cov_deposit = calculate_student_group_coverage(group_pays, float(course.price))
         now = datetime.utcnow()
         if cov_end and cov_end > now:
             p_from = cov_end
@@ -449,7 +497,7 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
 
     base_price = float(course.price)
     discount_amount = base_price * (total_discount_pct / 100.0)
-    final_price = max(base_price - discount_amount, 0.0)
+    final_price = max(base_price - discount_amount - cov_deposit, 0.0)
 
     # State ga saqlash
     await state.update_data(
@@ -457,6 +505,7 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         group_name=group.name,
         base_price=base_price,
         discount_amount=discount_amount,
+        deposit_amount=cov_deposit,
         final_price=final_price,
         discount_pct=total_discount_pct,
     )
@@ -489,6 +538,8 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         )
         if total_discount_pct > 0:
             text += f"🎁 <b>Referal chegirma:</b> -{total_discount_pct:.0f}% (-{discount_amount:,.0f} so'm)\n"
+        if cov_deposit > 0:
+            text += f"💰 <b>Depozit (mavjud qoldiq):</b> -{cov_deposit:,.0f} so'm\n"
         text += f"💰 <b>To'lanadigan summa:</b> {final_price:,.0f} so'm\n\nTo'lov usulini tanlang:"
         cash_btn = "💵 Naqd to'lov (Ofisda / O'qituvchiga)"
         online_btn = "🌐 Online to'lov (Payme / Click / Uzum)"
@@ -502,6 +553,8 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         )
         if total_discount_pct > 0:
             text += f"🎁 <b>Реферальная скидка:</b> -{total_discount_pct:.0f}% (-{discount_amount:,.0f} сум)\n"
+        if cov_deposit > 0:
+            text += f"💰 <b>Депозит (остаток):</b> -{cov_deposit:,.0f} сум\n"
         text += f"💰 <b>Итого к оплате:</b> {final_price:,.0f} сум\n\nВыберите способ оплаты:"
         cash_btn = "💵 Наличными (В офисе / Учителю)"
         online_btn = "🌐 Онлайн оплата (Payme / Click / Uzum)"
@@ -515,6 +568,8 @@ async def payment_group_selected(callback: CallbackQuery, i18n: I18nContext, sta
         )
         if total_discount_pct > 0:
             text += f"🎁 <b>Referral discount:</b> -{total_discount_pct:.0f}% (-{discount_amount:,.0f} UZS)\n"
+        if cov_deposit > 0:
+            text += f"💰 <b>Deposit credit:</b> -{cov_deposit:,.0f} UZS\n"
         text += f"💰 <b>Total payable:</b> {final_price:,.0f} UZS\n\nChoose payment method:"
         cash_btn = "💵 Cash (At Office / To Teacher)"
         online_btn = "🌐 Online Payment (Payme / Click / Uzum)"
@@ -705,7 +760,7 @@ async def online_pay_complete(callback: CallbackQuery, i18n: I18nContext, state:
             )
         )
         all_group_pays = group_pays_res.scalars().all()
-        new_coverage_end, _ = calculate_student_group_coverage(all_group_pays, course_price)
+        new_coverage_end, _, _ = calculate_student_group_coverage(all_group_pays, course_price)
 
         # O'quvchining ishlatilgan referal bonuslarini yopish
         if discount_amount > 0:
@@ -935,7 +990,7 @@ async def confirm_payment(callback: CallbackQuery):
         all_group_pays = all_pays_res.scalars().all()
         course_obj = await session.get(Course, group.course_id) if group else None
         c_price = float(course_obj.price) if course_obj else float(payment.amount)
-        new_coverage_end, _ = calculate_student_group_coverage(all_group_pays, c_price)
+        new_coverage_end, _, _ = calculate_student_group_coverage(all_group_pays, c_price)
 
         # Referal bonuslarni yopish
         if payment.discount_amount and payment.discount_amount > 0:

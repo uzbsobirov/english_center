@@ -59,6 +59,13 @@ async def clean_and_reseed():
         print("  [+] Kurslar va guruhlar yaratilmoqda...")
         await seed_courses_and_groups(session)
 
+        # 4. Standart testlar (agar bo'sh bo'lsa)
+        t_cnt = (await session.execute(text("SELECT COUNT(*) FROM tests"))).scalar()
+        if not t_cnt or t_cnt == 0:
+            print("  [+] Standart A1-C2 testlari kiritilmoqda...")
+            from init_db import seed_tests
+            await seed_tests(session)
+
         await session.commit()
 
     async with async_session() as session:

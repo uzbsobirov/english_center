@@ -4,6 +4,20 @@ Barcha o'zgarishlar, yangilanishlar, xavfsizlik yaxshilanishlari va yangi modull
 
 ---
 
+## 🚀 [2026-09-04] — Depozit va To'lov Muddatini To'g'ri Hisoblash Fixi (v2.6.8)
+
+### 💰 Depozit / Qoldiq Mablag' va To'lov Muddatlari To'g'ri Ajratildi (`payments.py` & `profile.py`)
+- **Muammo:** Guruh almashtirilganda yoki ortiqcha to'lov qilinganda hisobda qolgan 350,000 so'm depozit to'liq 1 oylik to'lov sifatida o'tib ketib, o'quvchiga asossiz ravishda «11-oy (noyabr)gacha to'lov qilingan» deb xabar berilayotgan edi (`max(1, ...)` va yaxlitlash tufayli har qanday to'lov +1 oy berayotgan edi).
+- **Aniqlangan yechim:**
+  - `calculate_student_group_coverage` algoritmi tubdan takomillashtirildi: mavjud mablag' oylik kurs narxiga qoldiqsiz bo'linadi (`available // course_price`). Faqatgina to'liq oyni qoplagan summagina yangi muddat (oy) qo'shadi!
+  - Yetmagan har qanday ortiqcha summa (masalan, 350,000 so'm) **depozit qoldig'i (`deposit_balance`)** sifatida saqlanadi va muddatni asossiz ravishda keyingi oyga surmaydi.
+- **Interaktiv To'lov Kartasi va Profil yangilanishi:**
+  - O'quvchi kartasida: `✅ Joriy oy uchun to'langan (04.10.2026 gacha)` va alohida qator: `▫️ 💰 Depozit qoldig'i: +350,000 so'm` ko'rinadi.
+  - Keyingi oy to'lovi hisoblanganda depozit avtomatik chegiriladi: agar kurs 500,000 so'm bo'lsa, o'quvchi tugmasi: `[💳 Keyingi oy uchun to'lash (150,000 so'm)]` bo'lib chiqadi.
+  - To'lov hisob-fakturasida depozit summasi minus qilinib ko'rsatiladi va to'lov tasdiqlangach to'liq 11-oyga o'tadi.
+
+---
+
 ## 🚀 [2026-09-04] — Smart To'lov Tizimi, Profil & Telefon Bug Fixlari (v2.6.7)
 
 ### 1. 💳 Intellektual To'lov Tizimi & Takroriy To'lovdan Himoya (`payments.py`)
