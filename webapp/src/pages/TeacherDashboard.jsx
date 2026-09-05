@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "../api/client";
+import { getTelegramLanguage, syncUserLanguage } from "../lib/telegram";
+import LanguageSwitcher from "../components/LanguageSwitcher";
 import TestBuilder from "./TestBuilder";
 
 export default function TeacherDashboard({ onSwitchMode, embedded = false }) {
+  const [lang, setLang] = useState(getTelegramLanguage);
   const [activeTab, setActiveTab] = useState("groups"); // groups, students, builder
+
+  const handleLanguageChange = (newLang) => {
+    setLang(newLang);
+    syncUserLanguage(newLang);
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [workspace, setWorkspace] = useState(null);
@@ -376,6 +384,8 @@ export default function TeacherDashboard({ onSwitchMode, embedded = false }) {
           </div>
 
           <div className="flex items-center gap-2">
+            <LanguageSwitcher currentLang={lang} onChangeLang={handleLanguageChange} />
+
             {onSwitchMode && (
               <button
                 onClick={() => onSwitchMode("admin")}

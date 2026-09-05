@@ -6,7 +6,7 @@ from aiogram_i18n import I18nContext
 from sqlalchemy import select
 
 from backend.database import async_session
-from backend.models import User, LanguageEnum, RoleEnum
+from backend.models import User, LanguageEnum, RoleEnum, CenterSetting
 
 from app.state.registration import Registration
 from app.keyboards.language import language_keyboard, LANGUAGE_BUTTONS
@@ -44,6 +44,8 @@ async def start(message: Message, command: CommandObject, state: FSMContext, i18
 
         await state.clear()
         is_admin = await is_admin_or_manager(user.id) or await is_teacher(user.id)
+        user_lang = user.language.value if hasattr(user.language, "value") else str(user.language or "uz")
+
         await message.answer(
             i18n.get("welcome-back", name=user.full_name),
             reply_markup=main_menu_keyboard(
@@ -51,6 +53,7 @@ async def start(message: Message, command: CommandObject, state: FSMContext, i18
                 user_id=message.from_user.id,
                 user_name=user.full_name or message.from_user.full_name,
                 username=message.from_user.username,
+                lang=user_lang,
                 is_admin=is_admin,
             ),
         )

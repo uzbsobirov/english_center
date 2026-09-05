@@ -38,8 +38,11 @@ async def _get_groups_for_homework(user_id: int):
         return result.scalars().all()
 
 
+from app.keyboards.admin_menu import ALL_HOMEWORK_BUTTONS
+
+
 @router.message(Command("add_homework"))
-@router.message(F.text.in_({"📋 Uy vazifasi qo'shish", "📋 Uy vazifasi yuklash", "Uy vazifasi qo'shish", "Homework"}))
+@router.message(F.text.in_(ALL_HOMEWORK_BUTTONS))
 async def start_add_homework(message: Message, state: FSMContext):
     if not await _is_teacher_or_admin(message.from_user.id):
         await message.answer("Bu buyruq faqat o'qituvchilar va adminlar uchun.")

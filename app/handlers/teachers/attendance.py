@@ -40,8 +40,11 @@ async def _get_groups_for_attendance(user_id: int):
         return result.scalars().all()
 
 
+from app.keyboards.admin_menu import ALL_ATTENDANCE_BUTTONS
+
+
 @router.message(Command("attendance"))
-@router.message(F.text.in_({"👥 Davomat olish", "👥 Davomat", "Davomat", "Attendance"}))
+@router.message(F.text.in_(ALL_ATTENDANCE_BUTTONS))
 async def start_attendance(message: Message):
     if not await _is_teacher_or_admin(message.from_user.id):
         await message.answer("Bu buyruq faqat o'qituvchilar va adminlar uchun.")

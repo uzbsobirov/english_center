@@ -86,31 +86,77 @@ async def show_student_progress(message: Message, i18n: I18nContext):
     # Progress bar generatsiyasi (masalan: [🟩🟩🟩🟩⬜️⬜️⬜️⬜️⬜️⬜️] 40%)
     filled_blocks = min(10, int(att_pct / 10))
     bar = "🟩" * filled_blocks + "⬜️" * (10 - filled_blocks)
-    badges_text = " • ".join(badges) if badges else "Boshlang'ich"
+    import urllib.parse
+    lang = getattr(i18n, "locale", "uz") or "uz"
 
-    group_name = enr_data[1].name if enr_data else "Guruhga yozilmagan"
-    course_name = enr_data[2].title.get("uz", "Ingliz tili") if enr_data and isinstance(enr_data[2].title, dict) else (enr_data[2].title if enr_data else "-")
+    # Course name tarjimasi
+    if enr_data:
+        if isinstance(enr_data[2].title, dict):
+            course_name = enr_data[2].title.get(lang) or enr_data[2].title.get("uz") or "English"
+        else:
+            course_name = str(enr_data[2].title)
+        group_name = enr_data[1].name
+    else:
+        group_name = "Not enrolled" if lang == "en" else "Не записан" if lang == "ru" else "Guruhga yozilmagan"
+        course_name = "-"
 
-    text = (
-        f"📊 <b>Sizning O'quv Progressingiz</b>\n\n"
-        f"👤 <b>O'quvchi:</b> {message.from_user.full_name}\n"
-        f"📚 <b>Guruh:</b> {group_name} ({course_name})\n\n"
-        f"📈 <b>Davomat intizomi:</b>\n"
-        f"[{bar}] <b>{att_pct:.1f}%</b> ({present_att}/{total_att} dars)\n\n"
-        f"📝 <b>Testlar natijasi:</b>\n"
-        f"▫️ Topshirilgan testlar: <b>{len(tests)} ta</b>\n"
-        f"▫️ O'rtacha o'zlashtirish: <b>{avg_test:.1f}%</b>\n\n"
-        f"🏅 <b>Yutuqlar va Badge'lar:</b>\n"
-        f"{badges_text}"
-    )
+    if lang == "en":
+        badges_text = " • ".join(badges) if badges else "Starter"
+        text = (
+            f"📊 <b>Your Learning Progress</b>\n\n"
+            f"👤 <b>Student:</b> {message.from_user.full_name}\n"
+            f"📚 <b>Group:</b> {group_name} ({course_name})\n\n"
+            f"📈 <b>Attendance Rate:</b>\n"
+            f"[{bar}] <b>{att_pct:.1f}%</b> ({present_att}/{total_att} lessons)\n\n"
+            f"📝 <b>Test Results:</b>\n"
+            f"▫️ Tests taken: <b>{len(tests)}</b>\n"
+            f"▫️ Average score: <b>{avg_test:.1f}%</b>\n\n"
+            f"🏅 <b>Badges & Achievements:</b>\n"
+            f"{badges_text}"
+        )
+        btn_text = "📱 Detailed Analytics (Web App)"
+    elif lang == "ru":
+        badges_text = " • ".join(badges) if badges else "Начальный"
+        text = (
+            f"📊 <b>Ваш Учебный Прогресс</b>\n\n"
+            f"👤 <b>Студент:</b> {message.from_user.full_name}\n"
+            f"📚 <b>Группа:</b> {group_name} ({course_name})\n\n"
+            f"📈 <b>Посещаемость:</b>\n"
+            f"[{bar}] <b>{att_pct:.1f}%</b> ({present_att}/{total_att} уроков)\n\n"
+            f"📝 <b>Результаты тестов:</b>\n"
+            f"▫️ Пройдено тестов: <b>{len(tests)}</b>\n"
+            f"▫️ Средний балл: <b>{avg_test:.1f}%</b>\n\n"
+            f"🏅 <b>Достижения и бейджи:</b>\n"
+            f"{badges_text}"
+        )
+        btn_text = "📱 Подробные графики (Web App)"
+    else:
+        badges_text = " • ".join(badges) if badges else "Boshlang'ich"
+        text = (
+            f"📊 <b>Sizning O'quv Progressingiz</b>\n\n"
+            f"👤 <b>O'quvchi:</b> {message.from_user.full_name}\n"
+            f"📚 <b>Guruh:</b> {group_name} ({course_name})\n\n"
+            f"📈 <b>Davomat intizomi:</b>\n"
+            f"[{bar}] <b>{att_pct:.1f}%</b> ({present_att}/{total_att} dars)\n\n"
+            f"📝 <b>Testlar natijasi:</b>\n"
+            f"▫️ Topshirilgan testlar: <b>{len(tests)} ta</b>\n"
+            f"▫️ O'rtacha o'zlashtirish: <b>{avg_test:.1f}%</b>\n\n"
+            f"🏅 <b>Yutuqlar va Badge'lar:</b>\n"
+            f"{badges_text}"
+        )
+        btn_text = "📱 Batafsil grafiklar (Web App)"
 
     keyboard_buttons = []
     # WebApp URL bo'lsa grafikli tahlil tugmasi
     if WEBAPP_URL.startswith("https://"):
+        u_name = urllib.parse.quote(str(message.from_user.full_name or ""))
+        u_uname = urllib.parse.quote(str(message.from_user.username or ""))
+        sep = "&" if "?" in WEBAPP_URL else "?"
+        app_progress_url = f"{WEBAPP_URL}/progress{sep}user_id={user_id}&lang={lang}&name={u_name}&username={u_uname}"
         keyboard_buttons.append([
             InlineKeyboardButton(
-                text="📱 Batafsil grafiklar (Web App)",
-                web_app=WebAppInfo(url=f"{WEBAPP_URL}/progress"),
+                text=btn_text,
+                web_app=WebAppInfo(url=app_progress_url),
             )
         ])
 

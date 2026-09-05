@@ -61,8 +61,11 @@ def _groups_keyboard(groups, callback_prefix: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+from app.keyboards.admin_menu import ALL_CASH_BUTTONS, ALL_REFUND_BUTTONS
+
+
 @router.message(Command("cash_payment"))
-@router.message(F.text.in_({"💵 Naqd to'lov qabul qilish", "💵 Naqd to'lov", "Naqd to'lov"}))
+@router.message(F.text.in_(ALL_CASH_BUTTONS))
 async def start_cash_payment(message: Message, state: FSMContext):
     if not await _is_teacher_or_admin(message.from_user.id):
         await message.answer("Bu buyruq faqat o'qituvchilar va adminlar uchun.")
@@ -350,7 +353,7 @@ async def _save_cash_payment(teacher_id: int, data: dict, amount: float):
 
 
 @router.message(Command("refund"))
-@router.message(F.text.in_({"💰 Qaytarish (Refund)", "💰 Qaytarish", "Refund", "Qaytarish"}))
+@router.message(F.text.in_(ALL_REFUND_BUTTONS))
 async def start_refund(message: Message, state: FSMContext):
     if not await _is_teacher_or_admin(message.from_user.id):
         await message.answer("Bu buyruq faqat o'qituvchilar va adminlar uchun.")

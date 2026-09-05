@@ -17,23 +17,25 @@ from backend.models import User, LanguageEnum
 class UserManager(BaseManager):
 
     async def get_locale(self, event_from_user: TgUser, state: FSMContext) -> str:
-        # 1) FSM state ichida saqlangan tilni tekshiramiz (registratsiya vaqtida)
+        # 1) Bazada mavjud foydalanuvchi tilini tekshiramiz (eng asosiy va birlamchi manba)
+        if event_from_user is not None:
+            async with async_session() as session:
+                user = await session.get(User, event_from_user.id)
+                if user is not None and user.language:
+                    if user.username == "admin" or (event_from_user.username and user.username != event_from_user.username):
+                        user.username = event_from_user.username
+                        await session.commit()
+                    # FSM state'dagi keshni ham yangi tilga sinxronlaymiz
+                    if state is not None:
+                        await state.update_data(language=user.language.value)
+                    return user.language.value
+
+        # 2) Agar foydalanuvchi hali bazada bo'lmasa (ro'yxatdan o'tish jarayonida), FSM'dan olamiz
         if state is not None:
             fsm_data = await state.get_data()
             lang = fsm_data.get("language")
             if lang:
                 return lang
-
-        # 2) DB'dan tekshiramiz (oldin ro'yxatdan o'tgan foydalanuvchi)
-        if event_from_user is not None:
-            async with async_session() as session:
-                user = await session.get(User, event_from_user.id)
-                if user is not None:
-                    # Agar bazada username 'admin' bo'lib qolgan bo'lsa yoki telegramdagi bilan mos kelmasa
-                    if user.username == "admin" or (event_from_user.username and user.username != event_from_user.username):
-                        user.username = event_from_user.username
-                        await session.commit()
-                    return user.language.value
 
         # 3) Standart til
         return "uz"

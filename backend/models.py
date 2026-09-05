@@ -366,6 +366,11 @@ class CenterSetting(Base):
         "ru": "г. Ташкент, ул. Амира Темура, д. 12",
         "en": "12 Amir Temur street, Tashkent"
     })
+    welcome_message: Mapped[dict | None] = mapped_column(JSON, default=lambda: {
+        "uz": "Xush kelibsiz! Alpha English Center rasmiy botiga xush kelibsiz. Bu yerda siz kurslarga yozilishingiz, darajangizni aniqlash uchun test topshirishingiz va o'quv natijalaringizni kuzatishingiz mumkin.",
+        "ru": "Добро пожаловать в официальный бот Alpha English Center! Здесь вы можете записаться на курсы, пройти тестирование для определения уровня и отслеживать успеваемость.",
+        "en": "Welcome to the official Alpha English Center bot! Here you can enroll in courses, take placement tests, and track your academic progress."
+    }, nullable=True)
     updated_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

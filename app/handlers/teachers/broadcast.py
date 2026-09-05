@@ -26,9 +26,9 @@ class BroadcastFSM(StatesGroup):
     confirm_send = State()
 
 
-BROADCAST_BUTTON_TEXTS = {
-    "📢 Xabar yuborish (Broadcast)",
-    "📢 Xabar yuborish",
+from app.keyboards.admin_menu import ALL_BROADCAST_BUTTONS
+
+BROADCAST_BUTTON_TEXTS = ALL_BROADCAST_BUTTONS | {
     "📢 Broadcast",
     "📢 Рассылка",
 }

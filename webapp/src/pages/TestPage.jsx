@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "../api/client";
-import { getTelegramLanguage, setTelegramLanguage } from "../lib/telegram";
+import { getTelegramLanguage, setTelegramLanguage, syncUserLanguage } from "../lib/telegram";
 import { getTranslation } from "../lib/translations";
 
 const TEST_TYPES_BASE = [
@@ -250,7 +250,7 @@ export default function TestPage({ onSwitchMode }) {
 
   const handleLanguageChange = (newLang) => {
     setLang(newLang);
-    setTelegramLanguage(newLang);
+    syncUserLanguage(newLang);
   };
 
   useEffect(() => {

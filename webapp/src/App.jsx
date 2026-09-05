@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import WebApp from "./lib/telegram";
+import WebApp, { setTelegramLanguage } from "./lib/telegram";
 import { apiClient } from "./api/client";
 import TestPage from "./pages/TestPage";
 import TestBuilder from "./pages/TestBuilder";
@@ -33,6 +33,17 @@ function App() {
       WebApp.ready();
       WebApp.expand();
     }
+
+    // Language sync: agar URL da ?lang ko'rsatilmagan bo'lsa, foydalanuvchining bazadagi tilini olib saqlaymiz
+    const hasUrlLang = new URLSearchParams(window.location.search).has("lang");
+    apiClient
+      .get("/api/me")
+      .then((res) => {
+        if (!hasUrlLang && res.data?.language) {
+          setTelegramLanguage(res.data.language);
+        }
+      })
+      .catch(() => {});
 
     // Role-based check: if teacher opens webapp, ensure they only see TeacherDashboard
     apiClient

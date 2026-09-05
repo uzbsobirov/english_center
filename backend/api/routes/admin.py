@@ -1197,6 +1197,9 @@ class SettingsPayload(BaseModel):
     address_uz: str
     address_ru: str | None = None
     address_en: str | None = None
+    welcome_message_uz: str | None = None
+    welcome_message_ru: str | None = None
+    welcome_message_en: str | None = None
 
 
 @router.get("/settings")
@@ -1217,18 +1220,27 @@ async def get_center_settings(user: dict = Depends(get_current_telegram_user)):
                     "ru": "г. Ташкент, ул. Амира Темура, д. 12",
                     "en": "12 Amir Temur street, Tashkent",
                 },
+                welcome_message={
+                    "uz": "Xush kelibsiz! Alpha English Center rasmiy botiga xush kelibsiz. Bu yerda siz kurslarga yozilishingiz, darajangizni aniqlash uchun test topshirishingiz va o'quv natijalaringizni kuzatishingiz mumkin.",
+                    "ru": "Добро пожаловать в официальный бот Alpha English Center! Здесь вы можете записаться на курсы, пройти тестирование для определения уровня и отслеживать успеваемость.",
+                    "en": "Welcome to the official Alpha English Center bot! Here you can enroll in courses, take placement tests, and track your academic progress."
+                },
             )
             session.add(settings)
             await session.commit()
             await session.refresh(settings)
 
         addr = settings.address if isinstance(settings.address, dict) else {}
+        w_msg = settings.welcome_message if isinstance(settings.welcome_message, dict) else {}
         return {
             "contact_phone": settings.contact_phone,
             "contact_username": settings.contact_username,
             "address_uz": addr.get("uz", "Toshkent sh., Amir Temur ko'chasi, 12-uy"),
             "address_ru": addr.get("ru", "г. Ташкент, ул. Амира Темура, д. 12"),
             "address_en": addr.get("en", "12 Amir Temur street, Tashkent"),
+            "welcome_message_uz": w_msg.get("uz", "Xush kelibsiz! Alpha English Center rasmiy botiga xush kelibsiz. Bu yerda siz kurslarga yozilishingiz, darajangizni aniqlash uchun test topshirishingiz va o'quv natijalaringizni kuzatishingiz mumkin."),
+            "welcome_message_ru": w_msg.get("ru", "Добро пожаловать в официальный бот Alpha English Center! Здесь вы можете записаться на курсы, пройти тестирование для определения уровня и отслеживать успеваемость."),
+            "welcome_message_en": w_msg.get("en", "Welcome to the official Alpha English Center bot! Here you can enroll in courses, take placement tests, and track your academic progress."),
         }
 
 
@@ -1251,6 +1263,11 @@ async def update_center_settings(payload: SettingsPayload, user: dict = Depends(
             "uz": payload.address_uz.strip(),
             "ru": (payload.address_ru or payload.address_uz).strip(),
             "en": (payload.address_en or payload.address_uz).strip(),
+        }
+        settings.welcome_message = {
+            "uz": (payload.welcome_message_uz or "").strip(),
+            "ru": (payload.welcome_message_ru or payload.welcome_message_uz or "").strip(),
+            "en": (payload.welcome_message_en or payload.welcome_message_uz or "").strip(),
         }
         settings.updated_by = user["id"]
         settings.updated_at = datetime.utcnow()

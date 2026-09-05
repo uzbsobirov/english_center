@@ -34,8 +34,11 @@ async def _get_groups(user_id: int):
         return result.scalars().all()
 
 
+from app.keyboards.admin_menu import ALL_CERTIFICATE_BUTTONS
+
+
 @router.message(Command("issue_certificate"))
-@router.message(F.text.in_({"🎓 Sertifikat berish", "🎓 Sertifikat", "Sertifikat berish", "Certificate"}))
+@router.message(F.text.in_(ALL_CERTIFICATE_BUTTONS))
 async def start_issue_certificate(message: Message):
     if not await _is_teacher_or_admin(message.from_user.id):
         await message.answer("Bu buyruq faqat o'qituvchilar va adminlar uchun.")

@@ -10,10 +10,14 @@ from aiogram.types import Message
 from aiogram_i18n import I18nContext
 
 from backend.services.user_service import is_admin_or_manager, is_teacher, add_admin, remove_admin
+from backend.models import CenterSetting
 from app.keyboards.admin_menu import (
     admin_menu_keyboard,
     ADMIN_PANEL_BUTTON_TEXTS,
     ADMIN_MENU_TEXTS,
+    ALL_BACK_BUTTONS,
+    ALL_TEACHERS_BUTTONS,
+    ALL_ADMINS_BUTTONS,
 )
 from app.keyboards.main_menu import main_menu_keyboard
 
@@ -32,49 +36,107 @@ async def open_admin_panel(message: Message, i18n: I18nContext):
         return
 
     lang = getattr(i18n, "locale", "uz") or "uz"
-    user_name = message.from_user.full_name or "Ustoz"
+    user_name = message.from_user.full_name or ("Teacher" if lang == "en" else "Учитель" if lang == "ru" else "Ustoz")
     username = message.from_user.username or ""
 
-    reply_kb = admin_menu_keyboard(
-        user_id=user_id,
-        user_name=user_name,
-        username=username,
-        lang=lang,
-        is_admin=is_real_admin,
-        is_teacher=is_teacher_user,
-    )
+    prefix_msg = ""
 
     if not is_real_admin:
-        # FAQAT O'QITUVCHILAR UCHUN XABAR (MOLIYA VA SOZLAMALARSIZ)
-        text = (
-            f"👨‍🏫 <b>Alpha English Center — O'qituvchi Kabineti</b>\n\n"
-            f"Assalomu alaykum, <b>{user_name}</b>!\n"
-            f"Sizning o'qituvchilik ishchi kabinetingiz faollashtirildi:\n\n"
-            f"▫️ <b>👨‍🏫 O'qituvchi Kabineti (Web):</b> Sizga biriktirilgan dars guruhlari, o'quvchilar ro'yxati va dars jadvali.\n"
-            f"▫️ <b>👥 Davomat:</b> Darsga kelgan va kelmagan o'quvchilarni belgilash.\n"
-            f"▫️ <b>📋 Uy Vazifasi:</b> Vazifalar yuklash (o'quvchilarga avtomatik xabar boradi).\n"
-            f"▫️ <b>🛠 Test Builder & AI:</b> Sun'iy intellekt (Gemini) yordamida testlar yaratish.\n"
-            f"▫️ <b>🎓 Sertifikat:</b> Bitiruvchilarga rasmiy PDF sertifikat berish.\n\n"
-            f"<i>💡 Kerakli bo'limni tanlash uchun quyidagi tugmalardan foydalaning.</i>\n"
-            f"<i>Ortga qaytish: «◀️ Asosiy menyu»</i>"
-        )
+        # FAQAT O'QITUVCHILAR UCHUN XABAR
+        if lang == "en":
+            text = (
+                f"{prefix_msg}"
+                f"👨‍🏫 <b>Alpha English Center — Teacher Cabinet</b>\n\n"
+                f"Hello, <b>{user_name}</b>!\n"
+                f"Your teacher workspace is now active:\n\n"
+                f"▫️ <b>👨‍🏫 Teacher Cabinet (Web):</b> Assigned student groups, roster, and class schedule.\n"
+                f"▫️ <b>👥 Attendance:</b> Track student attendance and absences.\n"
+                f"▫️ <b>📋 Homework:</b> Upload assignments (students receive automated notifications).\n"
+                f"▫️ <b>🛠 Test Builder & AI:</b> Generate custom placement & class tests using AI (Gemini).\n"
+                f"▫️ <b>🎓 Certificate:</b> Issue official verifiable PDF certificates to graduates.\n\n"
+                f"<i>💡 Use the buttons below to navigate to any section.</i>\n"
+                f"<i>Return: «◀️ Main Menu»</i>"
+            )
+        elif lang == "ru":
+            text = (
+                f"{prefix_msg}"
+                f"👨‍🏫 <b>Alpha English Center — Кабинет Преподавателя</b>\n\n"
+                f"Здравствуйте, <b>{user_name}</b>!\n"
+                f"Ваш рабочий кабинет преподавателя активирован:\n\n"
+                f"▫️ <b>👨‍🏫 Кабинет Учителя (Web):</b> Ваши учебные группы, списки студентов и расписание.\n"
+                f"▫️ <b>👥 Посещаемость:</b> Отметка присутствия студентов на уроках.\n"
+                f"▫️ <b>📋 Домашнее задание:</b> Выдача заданий с автоматическим уведомлением.\n"
+                f"▫️ <b>🛠 Конструктор тестов & AI:</b> Создание тестов с помощью искусственного интеллекта (Gemini).\n"
+                f"▫️ <b>🎓 Сертификат:</b> Выдача официальных PDF сертификатов выпускникам.\n\n"
+                f"<i>💡 Используйте кнопки меню ниже для перехода в нужный раздел.</i>\n"
+                f"<i>Назад: «◀️ Главное меню»</i>"
+            )
+        else:
+            text = (
+                f"{prefix_msg}"
+                f"👨‍🏫 <b>Alpha English Center — O'qituvchi Kabineti</b>\n\n"
+                f"Assalomu alaykum, <b>{user_name}</b>!\n"
+                f"Sizning o'qituvchilik ishchi kabinetingiz faollashtirildi:\n\n"
+                f"▫️ <b>👨‍🏫 O'qituvchi Kabineti (Web):</b> Sizga biriktirilgan dars guruhlari, o'quvchilar ro'yxati va dars jadvali.\n"
+                f"▫️ <b>👥 Davomat:</b> Darsga kelgan va kelmagan o'quvchilarni belgilash.\n"
+                f"▫️ <b>📋 Uy Vazifasi:</b> Vazifalar yuklash (o'quvchilarga avtomatik xabar boradi).\n"
+                f"▫️ <b>🛠 Test Builder & AI:</b> Sun'iy intellekt (Gemini) yordamida testlar yaratish.\n"
+                f"▫️ <b>🎓 Sertifikat:</b> Bitiruvchilarga rasmiy PDF sertifikat berish.\n\n"
+                f"<i>💡 Kerakli bo'limni tanlash uchun quyidagi tugmalardan foydalaning.</i>\n"
+                f"<i>Ortga qaytish: «◀️ Asosiy menyu»</i>"
+            )
         await message.answer(text, reply_markup=reply_kb)
         return
 
-    text = (
-        f"👑 <b>Alpha English Center — Boshqaruv Markazi (v2.7)</b>\n\n"
-        f"Assalomu alaykum, <b>{user_name}</b>!\n"
-        f"Tizimning barcha boshqaruv vositalari va yangi imkoniyatlari faollashtirildi:\n\n"
-        f"▫️ <b>👑 Adminlar va 👨‍🏫 O'qituvchilar:</b> Yangi admin va ustozlarni tayinlash (<code>/add_admin</code>, <code>/add_teacher</code>) hamda to'liq shtat boshqaruvi.\n"
-        f"▫️ <b>🤖 AI Test Generator & Builder:</b> PDF fayldan sun'iy intellekt (Gemini) orqali matnli (passage), True/False, Bo'sh joyni to'ldirish va yozma testlarni avtomatik tuzish.\n"
-        f"▫️ <b>📊 WebApp Pro Dashboard:</b> Kurslar, Guruhlar (🔗 Telegram chat va Zoom havolalari), real vaqt statistikasi va Excel (.CSV) moliya hisobotlari.\n"
-        f"▫️ <b>💰 Kassa & ⚖️ Qaytarish (Refund):</b> To'lovlarni tasdiqlash, qatnashilgan darslar asosida avtomatik refund hisoblash va xavfsiz boshqaruv.\n"
-        f"▫️ <b>👥 Davomat & 📋 Uy Vazifasi:</b> Dars davomatini belgilash va o'quvchilarga avtomatik bildirishnomali vazifalar yuklash.\n"
-        f"▫️ <b>📢 Pro Broadcast:</b> Barcha o'quvchilar va guruhlarga tugmali ommaviy xabarnomalar yuborish.\n"
-        f"▫️ <b>🎓 Sertifikat & ⚙️ Sozlamalar:</b> Bitiruvchilarga rasmiy PDF sertifikat generatsiya qilish va markaz kontaktlarini boshqarish.\n\n"
-        f"<i>💡 Boshqaruvni boshlash uchun quyidagi menyu tugmalaridan birini tanlang yoki WebApp dashboardni oching.</i>\n"
-        f"<i>Ortga qaytish uchun: «◀️ Asosiy menyu» tugmasini bosing.</i>"
-    )
+    # ADMINLAR UCHUN XABAR
+    if lang == "en":
+        text = (
+            f"{prefix_msg}"
+            f"👑 <b>Alpha English Center — Admin Control Center</b>\n\n"
+            f"Hello, <b>{user_name}</b>!\n"
+            f"All center management tools and administrative features are active:\n\n"
+            f"▫️ <b>👑 Admins & 👨‍🏫 Teachers:</b> Staff management, appointing new administrators and instructors.\n"
+            f"▫️ <b>🤖 AI Test Generator & Builder:</b> Automated test generation from PDF materials via Gemini AI.\n"
+            f"▫️ <b>📊 WebApp Pro Dashboard:</b> Real-time statistics, courses, groups, and Excel financial exports.\n"
+            f"▫️ <b>💰 Cashier & ⚖️ Refund:</b> Payment approvals and automated refund formula calculations.\n"
+            f"▫️ <b>👥 Attendance & 📋 Homework:</b> Lesson tracking and instant homework notifications.\n"
+            f"▫️ <b>📢 Pro Broadcast:</b> Rich mass notifications to student cohorts and levels.\n"
+            f"▫️ <b>🎓 Certificates & ⚙️ Settings:</b> Official PDF graduation certificates and center configuration.\n\n"
+            f"<i>💡 Tap any button below to start managing the center or open the WebApp.</i>\n"
+            f"<i>Return: «◀️ Main Menu»</i>"
+        )
+    elif lang == "ru":
+        text = (
+            f"{prefix_msg}"
+            f"👑 <b>Alpha English Center — Панель Управления</b>\n\n"
+            f"Здравствуйте, <b>{user_name}</b>!\n"
+            f"Все инструменты управления образовательным центром активированы:\n\n"
+            f"▫️ <b>👑 Администраторы и 👨‍🏫 Преподаватели:</b> Назначение сотрудников и полное управление штатом.\n"
+            f"▫️ <b>🤖 Генератор тестов AI:</b> Автоматическое создание тестов из PDF с помощью ИИ (Gemini).\n"
+            f"▫️ <b>📊 WebApp Pro Dashboard:</b> Курсы, группы, статистика в реальном времени и Excel отчеты.\n"
+            f"▫️ <b>💰 Касса & ⚖️ Возврат (Refund):</b> Подтверждение платежей и автоматический расчет возвратов.\n"
+            f"▫️ <b>👥 Посещаемость & 📋 Д/З:</b> Учет посещаемости и выдача домашних заданий.\n"
+            f"▫️ <b>📢 Рассылка (Broadcast):</b> Массовая отправка сообщений студентам.\n"
+            f"▫️ <b>🎓 Сертификаты & ⚙️ Настройки:</b> Выдача сертификатов и управление параметрами центра.\n\n"
+            f"<i>💡 Выберите нужный раздел в меню ниже или откройте WebApp dashboard.</i>\n"
+            f"<i>Назад: «◀️ Главное меню»</i>"
+        )
+    else:
+        text = (
+            f"{prefix_msg}"
+            f"👑 <b>Alpha English Center — Boshqaruv Markazi (v2.7)</b>\n\n"
+            f"Assalomu alaykum, <b>{user_name}</b>!\n"
+            f"Tizimning barcha boshqaruv vositalari va yangi imkoniyatlari faollashtirildi:\n\n"
+            f"▫️ <b>👑 Adminlar va 👨‍🏫 O'qituvchilar:</b> Yangi admin va ustozlarni tayinlash (<code>/add_admin</code>, <code>/add_teacher</code>) hamda to'liq shtat boshqaruvi.\n"
+            f"▫️ <b>🤖 AI Test Generator & Builder:</b> PDF fayldan sun'iy intellekt (Gemini) orqali matnli (passage), True/False, Bo'sh joyni to'ldirish va yozma testlarni avtomatik tuzish.\n"
+            f"▫️ <b>📊 WebApp Pro Dashboard:</b> Kurslar, Guruhlar (🔗 Telegram chat va Zoom havolalari), real vaqt statistikasi va Excel (.CSV) moliya hisobotlari.\n"
+            f"▫️ <b>💰 Kassa & ⚖️ Qaytarish (Refund):</b> To'lovlarni tasdiqlash, qatnashilgan darslar asosida avtomatik refund hisoblash va xavfsiz boshqaruv.\n"
+            f"▫️ <b>👥 Davomat & 📋 Uy Vazifasi:</b> Dars davomatini belgilash va o'quvchilarga avtomatik bildirishnomali vazifalar yuklash.\n"
+            f"▫️ <b>📢 Pro Broadcast:</b> Barcha o'quvchilar va guruhlarga tugmali ommaviy xabarnomalar yuborish.\n"
+            f"▫️ <b>🎓 Sertifikat & ⚙️ Sozlamalar:</b> Bitiruvchilarga rasmiy PDF sertifikat generatsiya qilish va markaz kontaktlarini boshqarish.\n\n"
+            f"<i>💡 Boshqaruvni boshlash uchun quyidagi menyu tugmalaridan birini tanlang yoki WebApp dashboardni oching.</i>\n"
+            f"<i>Ortga qaytish uchun: «◀️ Asosiy menyu» tugmasini bosing.</i>"
+        )
 
     await message.answer(text, reply_markup=reply_kb)
 
@@ -84,7 +146,7 @@ from sqlalchemy import select, update
 from backend.database import async_session
 from backend.models import User, RoleEnum, Group
 
-@router.message(F.text == ADMIN_MENU_TEXTS["BACK_TO_MAIN"])
+@router.message(F.text.in_(ALL_BACK_BUTTONS))
 async def back_to_student_menu(message: Message, i18n: I18nContext):
     user_id = message.from_user.id
     is_admin = await is_admin_or_manager(user_id) or await is_teacher(user_id)
@@ -99,13 +161,18 @@ async def back_to_student_menu(message: Message, i18n: I18nContext):
         is_admin=is_admin,
     )
 
-    await message.answer("🏠 <b>Asosiy o'quvchi menyusiga qaytdingiz.</b>", reply_markup=kb)
+    back_text = (
+        "🏠 <b>You have returned to the main menu.</b>" if lang == "en"
+        else "🏠 <b>Вы вернулись в главное меню.</b>" if lang == "ru"
+        else "🏠 <b>Asosiy o'quvchi menyusiga qaytdingiz.</b>"
+    )
+    await message.answer(back_text, reply_markup=kb)
 
 
 # --- 👨‍🏫 O'QITUVCHILARNI BOSHQARISH BUYRUQLARI ---
 
 @router.message(Command("teachers"))
-@router.message(F.text == ADMIN_MENU_TEXTS["TEACHERS"])
+@router.message(F.text.in_(ALL_TEACHERS_BUTTONS))
 async def list_teachers_cmd(message: Message):
     if not await is_admin_or_manager(message.from_user.id):
         await message.answer("⚠️ Bu buyruq faqat adminlar uchun.")
@@ -219,7 +286,7 @@ async def remove_teacher_cmd(message: Message, command: CommandObject):
 
 
 @router.message(Command("admins"))
-@router.message(F.text == ADMIN_MENU_TEXTS["ADMINS"])
+@router.message(F.text.in_(ALL_ADMINS_BUTTONS))
 async def list_admins_cmd(message: Message):
     if not await is_admin_or_manager(message.from_user.id):
         await message.answer("⚠️ Bu buyruq faqat bosh adminlar uchun.")

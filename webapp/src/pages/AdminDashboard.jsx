@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "../api/client";
-import { getTelegramLanguage } from "../lib/telegram";
+import { getTelegramLanguage, syncUserLanguage } from "../lib/telegram";
+import { getTranslation } from "../lib/translations";
+import LanguageSwitcher from "../components/LanguageSwitcher";
 import TeacherDashboard from "./TeacherDashboard";
 
 export default function AdminDashboard({ onSwitchMode }) {
-  const [lang] = useState(getTelegramLanguage);
+  const [lang, setLang] = useState(getTelegramLanguage);
+  const t = getTranslation(lang).admin || {};
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, courses, groups, students, payments, broadcast
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -83,10 +86,18 @@ export default function AdminDashboard({ onSwitchMode }) {
     address_uz: "Toshkent sh., Amir Temur ko'chasi, 12-uy",
     address_ru: "г. Ташкент, ул. Амира Темура, д. 12",
     address_en: "12 Amir Temur street, Tashkent",
+    welcome_message_uz: "",
+    welcome_message_ru: "",
+    welcome_message_en: "",
   });
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
   const [userRoles, setUserRoles] = useState({ is_admin: true, is_teacher: false, is_dual_role: false });
+
+  const handleLanguageChange = (newLang) => {
+    setLang(newLang);
+    syncUserLanguage(newLang);
+  };
 
   const fetchDashboardData = () => {
     setLoading(true);
@@ -507,29 +518,31 @@ export default function AdminDashboard({ onSwitchMode }) {
             </div>
             <div>
               <h1 className="font-black text-white text-base leading-tight">
-                Alpha Admin Dashboard
+                {t.brandTitle || "Alpha Admin Dashboard"}
               </h1>
               <p className="text-[10px] text-slate-400 font-semibold">
-                Markaz Boshqaruv Markazi
+                {t.brandSubtitle || "Markaz Boshqaruv Markazi"}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            <LanguageSwitcher currentLang={lang} onChangeLang={handleLanguageChange} />
+
             {onSwitchMode && userRoles.is_teacher && (
               <button
                 onClick={() => onSwitchMode("teacher")}
                 className="px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-bold rounded-xl transition active:scale-95 flex items-center gap-1.5"
-                title="O'qituvchi sahifasiga o'tish"
+                title={t.teacherCabinet || "Ustoz Kabineti"}
               >
                 <span>👨‍🏫</span>
-                <span className="hidden sm:inline">Ustoz Kabineti</span>
+                <span className="hidden sm:inline">{t.teacherCabinet || "Ustoz Kabineti"}</span>
               </button>
             )}
             <button
               onClick={fetchDashboardData}
               className="p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 rounded-xl transition border border-slate-700/60"
-              title="Yangilash"
+              title={t.refresh || "Yangilash"}
             >
               🔄
             </button>
@@ -539,23 +552,23 @@ export default function AdminDashboard({ onSwitchMode }) {
         {/* Navigation Tabs */}
         <div className="max-w-6xl mx-auto px-4 flex gap-1.5 overflow-x-auto no-scrollbar border-t border-slate-800/80 pt-1 pb-1 text-xs font-bold">
           {[
-            { id: "dashboard", label: "📊 Asosiy", badge: null },
-            { id: "courses", label: "📚 Kurslar", badge: courses.length },
-            { id: "groups", label: "👥 Guruhlar", badge: groups.length },
+            { id: "dashboard", label: t.tabs?.dashboard || "📊 Asosiy", badge: null },
+            { id: "courses", label: t.tabs?.courses || "📚 Kurslar", badge: courses.length },
+            { id: "groups", label: t.tabs?.groups || "👥 Guruhlar", badge: groups.length },
             ...(userRoles.is_teacher
-              ? [{ id: "my_classes", label: "👨‍🏫 Mening Darslarim", badge: null }]
+              ? [{ id: "my_classes", label: t.tabs?.my_classes || "👨‍🏫 Mening Darslarim", badge: null }]
               : []),
-            { id: "teachers", label: "👨‍🏫 O'qituvchilar", badge: teachers.length },
-            { id: "admins", label: "👑 Adminlar", badge: admins.length },
-            { id: "students", label: "🎓 O'quvchilar", badge: students.length },
+            { id: "teachers", label: t.tabs?.teachers || "👨‍🏫 O'qituvchilar", badge: teachers.length },
+            { id: "admins", label: t.tabs?.admins || "👑 Adminlar", badge: admins.length },
+            { id: "students", label: t.tabs?.students || "🎓 O'quvchilar", badge: students.length },
             {
               id: "payments",
-              label: "💳 To'lovlar",
-              badge: stats?.pending_payments ? `${stats.pending_payments} kutilmoqda` : null,
+              label: t.tabs?.payments || "💳 To'lovlar",
+              badge: stats?.pending_payments ? `${stats.pending_payments}` : null,
               badgeColor: "bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse",
             },
-            { id: "broadcast", label: "📢 Broadcast", badge: null },
-            { id: "settings", label: "⚙️ Sozlamalar", badge: null },
+            { id: "broadcast", label: t.tabs?.broadcast || "📢 Broadcast", badge: null },
+            { id: "settings", label: t.tabs?.settings || "⚙️ Sozlamalar", badge: null },
           ].map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -654,9 +667,11 @@ export default function AdminDashboard({ onSwitchMode }) {
               <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none"></div>
 
               <div>
-                <h3 className="text-base font-black text-white mb-1">🚀 Alpha English Center — Boshqaruv Markazi</h3>
+                <h3 className="text-base font-black text-white mb-1">
+                  {t.bannerTitle || "🚀 Alpha English Center — Boshqaruv Markazi"}
+                </h3>
                 <p className="text-xs text-slate-300 max-w-md leading-relaxed">
-                  Kurslar, guruhlar, to'lovlar, xodimlar (admin va ustozlar) hamda sun'iy intellekt (Gemini AI) testlarini markazlashtirilgan holda boshqaring.
+                  {t.bannerDesc || "Kurslar, guruhlar, to'lovlar, xodimlar hamda sun'iy intellekt (Gemini AI) testlarini markazlashtirilgan holda boshqaring."}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 w-full sm:w-auto shrink-0">
@@ -665,21 +680,21 @@ export default function AdminDashboard({ onSwitchMode }) {
                   className="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
                 >
                   <span>➕</span>
-                  <span>Yangi Kurs</span>
+                  <span>{t.newCourse || "Yangi Kurs"}</span>
                 </button>
                 <button
                   onClick={handleOpenCreateGroup}
                   className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-black text-xs rounded-xl transition active:scale-95 flex items-center justify-center gap-1.5"
                 >
                   <span>👥</span>
-                  <span>Yangi Guruh</span>
+                  <span>{t.newGroup || "Yangi Guruh"}</span>
                 </button>
                 <button
                   onClick={handleOpenCreateAdmin}
                   className="flex-1 sm:flex-none px-4 py-2.5 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white font-black text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
                 >
                   <span>👑</span>
-                  <span>Yangi Admin</span>
+                  <span>{t.newAdmin || "Yangi Admin"}</span>
                 </button>
               </div>
             </div>
@@ -1426,9 +1441,11 @@ export default function AdminDashboard({ onSwitchMode }) {
           <div className="max-w-2xl mx-auto space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-base font-black text-white">⚙️ Markaz Kontakt Sozlamalari</h2>
+                <h2 className="text-base font-black text-white">
+                  {t.settings?.title || "⚙️ Markaz Ma'lumotlari va Sozlamalari"}
+                </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Ushbu ma'lumotlar botning «📞 Bog'lanish» bo'limida barcha o'quvchilarga bazadan olinib dinamik ko'rsatiladi.
+                  {t.settings?.desc || "Ushbu ma'lumotlar botning «📞 Bog'lanish» va «Xush kelibsiz» bo'limlarida barcha o'quvchilarga dinamik ko'rsatiladi."}
                 </p>
               </div>
             </div>
@@ -1437,12 +1454,14 @@ export default function AdminDashboard({ onSwitchMode }) {
               {settingsSuccess && (
                 <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold flex items-center gap-2">
                   <span>✅</span>
-                  <span>Markaz sozlamalari muvaffaqiyatli saqlandi! Botda darhol yangilandi.</span>
+                  <span>{t.settings?.savedAlert || "Markaz sozlamalari muvaffaqiyatli saqlandi! Botda darhol yangilandi."}</span>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">☎️ Markaz Telefon Raqami:</label>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  {t.settings?.phoneLabel || "☎️ Markaz Telefon Raqami:"}
+                </label>
                 <input
                   type="text"
                   value={centerSettings.contact_phone}
@@ -1454,7 +1473,9 @@ export default function AdminDashboard({ onSwitchMode }) {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">✍️ Administrator Telegram Username:</label>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  {t.settings?.usernameLabel || "✍️ Administrator Telegram Username:"}
+                </label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold">@</span>
                   <input
@@ -1469,9 +1490,13 @@ export default function AdminDashboard({ onSwitchMode }) {
               </div>
 
               <div className="space-y-3 pt-2 border-t border-slate-800">
-                <label className="block text-xs font-black text-slate-200">📍 O'quv Markazi Manzillari:</label>
+                <label className="block text-xs font-black text-slate-200">
+                  {t.settings?.addressesTitle || "📍 O'quv Markazi Manzillari:"}
+                </label>
                 <div>
-                  <span className="block text-[11px] font-bold text-slate-400 mb-1">O'zbekcha manzil (UZ):</span>
+                  <span className="block text-[11px] font-bold text-slate-400 mb-1">
+                    {t.settings?.addressUz || "O'zbekcha manzil (UZ):"}
+                  </span>
                   <input
                     type="text"
                     value={centerSettings.address_uz}
@@ -1482,7 +1507,9 @@ export default function AdminDashboard({ onSwitchMode }) {
                   />
                 </div>
                 <div>
-                  <span className="block text-[11px] font-bold text-slate-400 mb-1">Ruscha manzil (RU):</span>
+                  <span className="block text-[11px] font-bold text-slate-400 mb-1">
+                    {t.settings?.addressRu || "Ruscha manzil (RU):"}
+                  </span>
                   <input
                     type="text"
                     value={centerSettings.address_ru || ""}
@@ -1492,13 +1519,58 @@ export default function AdminDashboard({ onSwitchMode }) {
                   />
                 </div>
                 <div>
-                  <span className="block text-[11px] font-bold text-slate-400 mb-1">Inglizcha manzil (EN):</span>
+                  <span className="block text-[11px] font-bold text-slate-400 mb-1">
+                    {t.settings?.addressEn || "Inglizcha manzil (EN):"}
+                  </span>
                   <input
                     type="text"
                     value={centerSettings.address_en || ""}
                     onChange={(e) => setCenterSettings({ ...centerSettings, address_en: e.target.value })}
                     placeholder="12 Amir Temur street, Tashkent"
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white outline-none focus:border-indigo-500 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* WELCOME MESSAGES IN 3 LANGUAGES */}
+              <div className="space-y-3 pt-3 border-t border-slate-800">
+                <label className="block text-xs font-black text-slate-200">
+                  {t.settings?.welcomeTitle || "👋 Bot Xush Kelibsiz Xabari (Welcome Message):"}
+                </label>
+                <div>
+                  <span className="block text-[11px] font-bold text-slate-400 mb-1">
+                    {t.settings?.welcomeUz || "O'zbekcha xush kelibsiz xabari (UZ):"}
+                  </span>
+                  <textarea
+                    rows={2}
+                    value={centerSettings.welcome_message_uz || ""}
+                    onChange={(e) => setCenterSettings({ ...centerSettings, welcome_message_uz: e.target.value })}
+                    placeholder="Xush kelibsiz! Alpha English Center rasmiy botiga xush kelibsiz..."
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white outline-none focus:border-indigo-500 text-xs resize-none"
+                  />
+                </div>
+                <div>
+                  <span className="block text-[11px] font-bold text-slate-400 mb-1">
+                    {t.settings?.welcomeRu || "Ruscha xush kelibsiz xabari (RU):"}
+                  </span>
+                  <textarea
+                    rows={2}
+                    value={centerSettings.welcome_message_ru || ""}
+                    onChange={(e) => setCenterSettings({ ...centerSettings, welcome_message_ru: e.target.value })}
+                    placeholder="Добро пожаловать в официальный бот Alpha English Center..."
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white outline-none focus:border-indigo-500 text-xs resize-none"
+                  />
+                </div>
+                <div>
+                  <span className="block text-[11px] font-bold text-slate-400 mb-1">
+                    {t.settings?.welcomeEn || "Inglizcha xush kelibsiz xabari (EN):"}
+                  </span>
+                  <textarea
+                    rows={2}
+                    value={centerSettings.welcome_message_en || ""}
+                    onChange={(e) => setCenterSettings({ ...centerSettings, welcome_message_en: e.target.value })}
+                    placeholder="Welcome to the official Alpha English Center bot..."
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white outline-none focus:border-indigo-500 text-xs resize-none"
                   />
                 </div>
               </div>
@@ -1512,12 +1584,12 @@ export default function AdminDashboard({ onSwitchMode }) {
                   {settingsSaving ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Saqlanmoqda...</span>
+                      <span>{t.settings?.savingBtn || "Saqlanmoqda..."}</span>
                     </>
                   ) : (
                     <>
                       <span>💾</span>
-                      <span>Sozlamalarni Saqlash</span>
+                      <span>{t.settings?.saveBtn || "Sozlamalarni Saqlash"}</span>
                     </>
                   )}
                 </button>

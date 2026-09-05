@@ -114,20 +114,30 @@ export const getTelegramLanguage = () => {
     const lang = searchParams.get("lang");
     if (lang && ["uz", "ru", "en"].includes(lang.toLowerCase())) {
       const l = lang.toLowerCase();
-      sessionStorage.setItem("tg_lang", l);
+      setTelegramLanguage(l);
       return l;
     }
   } catch (e) {
     console.warn("Search params lang parse error:", e);
   }
 
-  // 2. WebApp SDK user language_code
+  // 2. Storage (localStorage yoki sessionStorage)
+  try {
+    const stored = localStorage.getItem("app_lang") || sessionStorage.getItem("tg_lang");
+    if (stored && ["uz", "ru", "en"].includes(stored)) {
+      return stored;
+    }
+  } catch (e) {
+    console.warn("Storage lang error:", e);
+  }
+
+  // 3. WebApp SDK user language_code
   try {
     const sdkLang = window.Telegram?.WebApp?.initDataUnsafe?.user?.language_code;
     if (sdkLang) {
       const code = sdkLang.slice(0, 2).toLowerCase();
       if (["uz", "ru", "en"].includes(code)) {
-        sessionStorage.setItem("tg_lang", code);
+        setTelegramLanguage(code);
         return code;
       }
     }
@@ -135,22 +145,43 @@ export const getTelegramLanguage = () => {
     console.warn("SDK lang parse error:", e);
   }
 
-  // 3. SessionStorage
-  try {
-    const cachedLang = sessionStorage.getItem("tg_lang");
-    if (cachedLang && ["uz", "ru", "en"].includes(cachedLang)) {
-      return cachedLang;
-    }
-  } catch (e) {
-    console.warn("Cached lang error:", e);
-  }
-
   return "uz";
 };
 
 export const setTelegramLanguage = (lang) => {
   if (["uz", "ru", "en"].includes(lang)) {
-    sessionStorage.setItem("tg_lang", lang);
+    try {
+      localStorage.setItem("app_lang", lang);
+    } catch (e) {}
+    try {
+      sessionStorage.setItem("tg_lang", lang);
+    } catch (e) {}
+  }
+};
+
+export const syncUserLanguage = async (lang) => {
+  if (!["uz", "ru", "en"].includes(lang)) return;
+  setTelegramLanguage(lang);
+  try {
+    const initData = getTelegramInitData();
+    const tgUser = getTelegramUser();
+    const headers = {
+      "Content-Type": "application/json",
+      "Bypass-Tunnel-Reminder": "true",
+    };
+    if (initData) headers["X-Telegram-Init-Data"] = initData;
+    if (tgUser && tgUser.id) {
+      headers["X-Telegram-User-Data"] = encodeURIComponent(JSON.stringify(tgUser));
+    }
+
+    const userQuery = tgUser && tgUser.id ? `?user_id=${tgUser.id}` : "";
+    await fetch(`/api/user/language${userQuery}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ language: lang }),
+    });
+  } catch (err) {
+    console.warn("syncUserLanguage error:", err);
   }
 };
 
